@@ -2,17 +2,17 @@
 #https://afni.nimh.nih.gov/pub/dist/doc/misc/Decon/2007_0504_basis_funcs.html. 
  
 #movie. 
-stim_time_AnimatedMovie.1D.txt 'BLOCK(30)'. 
-stim_time_NatureMovie.1D.txt 'BLOCK(30)'  
-stim_time_LandscapeMovie.1D.txt 'BLOCK(30)'. 
+stim_time_AnimatedMovie.1D.txt 'BLOCK(30)'   
+stim_time_NatureMovie.1D.txt 'BLOCK(30)'    
+stim_time_LandscapeMovie.1D.txt 'BLOCK(30)'  
  
-#biological motion. 
-stim_time_BiologicalMotion.1D.txt 'BLOCK(3)'. 
-stim_time_ScrambledMotion.1D.txt 'BLOCK(3)'. 
+#biological motion  
+stim_time_BiologicalMotion.1D.txt 'BLOCK(3)'  
+stim_time_ScrambledMotion.1D.txt 'BLOCK(3)'  
  
-#math. 
-stim_time_DigitJudgement.1D.txt 'BLOCK(2.6)'. 
-stim_time_Math.1D.txt 'BLOCK(2.6)'. 
+#math  
+stim_time_DigitJudgement.1D.txt 'BLOCK(2.6)'  
+stim_time_Math.1D.txt 'BLOCK(2.6)'  
  
 #motor. 
 stim_time_FingerSeq.1D.txt 'BLOCK(4.6)'. 
