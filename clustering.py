@@ -13,28 +13,40 @@ ANALYSIS_DIR = DATASET_DIR + 'analysis/'
 
 
 def setup():
-    '''Loads 3dDeconvolve data into matrix with 3D [960, 43, 21]
-    (Voxels, Tasks, Subjects). Returns this matrix and Nifti masker'''
+    """Loads 3dDeconvolve data into matrix with 3D [960, 43, 21]
+    (Voxels, Tasks, Subjects). Returns this matrix and Nifti masker.
+
+    Returns
+    -------
+    numpy array
+        Matrix storing beta values [960 Voxels, 43 Tasks, 21 Subjects]
+
+    Nifti1Masker
+        Object storing mask to transpose matrix back to MRI space
+    """
+    ''''''
     # set directory tree and get subjects
 
     dir_tree = common.DirectoryTree(DATASET_DIR)
     subjects = common.get_subjects(dir_tree)
 
-    # set number of subjects (four didn't run due to exclusion based on motion), standard shape and affine
+    # set number of subjects (four didn't run due to exclusion based on motion)
+    # ,standard shape and affine
     numsub = len(subjects) - 4
     STD_SHAPE = [79, 94, 65]
     STD_AFFINE = nib.load(
         subjects[1].deconvolve_dir + 'Go_FIR_MIN.nii.gz').affine
 
     # create complete matrix with 3 dimensions: voxels, tasks, and subjects
-    task_matrix = np.zeros([960, 43, numsub])
+    beta_matrix = np.zeros([960, 43, numsub])
+    tstat_matrix = np.zeros([960, 43, numsub])
 
     # Get mask
     mask = nib.load(
         ANALYSIS_DIR + 'Thalamus_Morel_consolidated_mask_v3.nii.gz')
     mask = image.math_img("img>0", img=mask)
     # mask = image.resample_img(mask, target_affine=STD_AFFINE,
-    #                           target_shape=STD_SHAPE, interpolation='nearest')
+    #                          target_shape=STD_SHAPE, interpolation='nearest')
     masker = input_data.NiftiMasker(
         mask, target_affine=STD_AFFINE, target_shape=STD_SHAPE)
     masker.fit()
@@ -49,7 +61,8 @@ def setup():
         sub_fullstats_4d = nib.load(filepath)
         sub_fullstats_4d_data = sub_fullstats_4d.get_fdata()
 
-        subject_task_matrix = np.zeros([960, 43])
+        beta_task_matrix = np.zeros([960, 43])
+        tstat_task_matrix = np.zeros([960, 43])
         group_matrix = np.zeros([960, 30])
 
         # convert to 4d array with only betas, start at 2 and get every 3
@@ -59,13 +72,25 @@ def setup():
             beta_array = masker.transform(beta_array).flatten()
 
             if task_index < 43:
-                subject_task_matrix[:, task_index] = beta_array
+                beta_task_matrix[:, task_index] = beta_array
     #             else:
     #                 group_matrix[:, task_index - 43] = beta_array
-        task_matrix[:, :, subject_index] = subject_task_matrix
+
+        # get tstat matrix
+        for task_index, i in enumerate(np.arange(3, 197, 3)):
+            tstat_array = sub_fullstats_4d_data[:, :, :, i]
+            tstat_array = nib.Nifti1Image(tstat_array, STD_AFFINE)
+            tstat_array = masker.transform(tstat_array).flatten()
+
+            if task_index < 43:
+                tstat_task_matrix[:, task_index] = tstat_array
+    #             else:
+    #                 group_matrix[:, task_index - 43] = beta_array
+
+        tstat_matrix[:, :, subject_index] = tstat_task_matrix
         subject_index += 1
 
-    return task_matrix, masker
+    return beta_matrix, tstat_matrix, masker
 
 
 def cluster_sub(sub_matrix, k):
@@ -95,6 +120,31 @@ def plot_clusters(sub_matrix):
     plt.ylabel('inertia')
     plt.xticks(ks)
     plt.show()
+
+
+def consensus_cluster(task_matrix, masker, label='beta'):
+    # consensus clustering
+
+    for k_cluster in range(2, 8):
+        consensus_matrix = np.zeros([960, 960, task_matrix.shape[-1]])
+        for i in range(task_matrix.shape[-1]):
+            sub_cluster, model = cluster_sub(
+                task_matrix[:, :, i], k_cluster)
+            coassignment_matrix = np.zeros([960, 960])
+            for j in range(960):
+                for k in range(960):
+                    if sub_cluster[j] == sub_cluster[k]:
+                        coassignment_matrix[j][k] = 1
+                    else:
+                        coassignment_matrix[j][k] = 0
+            consensus_matrix[:, :, i] = coassignment_matrix
+
+        mean_matrix = consensus_matrix.mean(2)
+        final_consensus_cluster, model = cluster_sub(mean_matrix, k_cluster)
+        final_consensus_cluster = masker.inverse_transform(
+            final_consensus_cluster)
+        nib.save(final_consensus_cluster, ANALYSIS_DIR
+                 + f'{label}_consensus_cluster_{k_cluster}.nii')
 
 
 def compute_PCA(task_matrix, masker):
@@ -132,24 +182,85 @@ def compute_PCA(task_matrix, masker):
         # view.open_in_browser()
 
 
-def consensus_cluster(task_matrix, masker):
-    # consensus clustering
-    k_clusters = 3
+def normalize_task_matrix(matrix):
+    print(matrix.shape)
+    # normalize each subject matrix
+    std_matrix = stats.zscore(matrix, axis=2)
+    std_matrix = matrix.mean(2)
+    return std_matrix
 
-    consensus_matrix = np.zeros([960, 960, task_matrix.shape[-1]])
-    for i in range(task_matrix.shape[-1]):
-        sub_cluster, model = cluster_sub(
-            task_matrix[:, :, i], k_clusters)
-        coassignment_matrix = np.zeros([960, 960])
-        for j in range(960):
-            for k in range(960):
-                if sub_cluster[j] == sub_cluster[k]:
-                    coassignment_matrix[j][k] = 1
-                else:
-                    coassignment_matrix[j][k] = 0
-        consensus_matrix[:, :, i] = coassignment_matrix
 
-    mean_matrix = consensus_matrix.mean(2)
-    final_consensus_cluster, model = cluster_sub(mean_matrix, k_clusters)
-    final_consensus_cluster = masker.inverse_transform(final_consensus_cluster)
-    nib.save(final_consensus_cluster, ANALYSIS_DIR + 'consensus_cluster_3.nii')
+def participation_coefficient_abs(task_matrix, masker, label='beta'):
+    task_matrix = normalize_task_matrix(task_matrix)
+    PC_matrix = np.zeros([task_matrix.shape[0]])
+
+    # get PC value for each voxel
+    for voxel_index in range(task_matrix.shape[0]):
+        sum_PC = 0.0
+        sum_task = np.absolute(task_matrix[voxel_index, :]).sum()
+        # sum (kis / ki)^ 2 for each task
+        for task_index in range(task_matrix.shape[1]):
+            sum_PC += (task_matrix[voxel_index, task_index] / sum_task) ** 2
+        PC = 1 - sum_PC
+        PC_matrix[voxel_index] = PC
+
+    print(PC_matrix)
+    PC_matrix = masker.inverse_transform(PC_matrix)
+    nib.save(PC_matrix, ANALYSIS_DIR + label +
+             'participation_coefficient_abs' + '.nii')
+
+
+def participation_coefficient_ex(task_matrix, masker, label='beta'):
+    task_matrix = normalize_task_matrix(task_matrix)
+    PC_matrix = np.zeros([task_matrix.shape[0]])
+
+    # get PC value for each voxel
+    for voxel_index in range(task_matrix.shape[0]):
+
+        sum_PC = 0.0
+        sum_task = np.absolute(task_matrix[voxel_index, :]).sum()
+        # sum (kis / ki)^ 2 for each task
+        for task_index in range(task_matrix.shape[1]):
+            sum_PC += (task_matrix[voxel_index, task_index] / sum_task) ** 2
+        PC = 1 - sum_PC
+        PC_matrix[voxel_index] = PC
+
+    print(PC_matrix)
+    PC_matrix = masker.inverse_transform(PC_matrix)
+    nib.save(PC_matrix, ANALYSIS_DIR + label +
+             'participation_coefficient_ex' + '.nii')
+
+
+def participation_coefficient_thr(task_matrix, masker, label='beta'):
+    task_matrix = normalize_task_matrix(task_matrix)
+    task_matrix = np.apply_along_axis(threshold_arr, 0, task_matrix)
+    PC_matrix = np.zeros([task_matrix.shape[0]])
+
+    # get PC value for each voxel
+    for voxel_index in range(task_matrix.shape[0]):
+
+        sum_PC = 0.0
+        sum_task = task_matrix[voxel_index, :].sum()
+        # sum (kis / ki)^ 2 for each task
+        for task_index in range(task_matrix.shape[1]):
+            sum_PC += (task_matrix[voxel_index,
+                                   task_index] / sum_task) ** 2
+        PC = 1 - sum_PC
+        PC_matrix[voxel_index] = PC
+
+    print(PC_matrix)
+    PC_matrix = masker.inverse_transform(PC_matrix)
+    nib.save(PC_matrix, ANALYSIS_DIR + label +
+             '_participation_coefficient_thr' + '.nii')
+
+
+def threshold_arr(arr):
+    new_arr = np.zeros(arr.shape)
+    for index in range(arr.shape[0]):
+        element = arr[index]
+        if element > 0:
+            new_arr[index] = element
+        else:
+            new_arr[index] = 0
+    print(new_arr)
+    return new_arr
