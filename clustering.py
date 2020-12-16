@@ -1,4 +1,4 @@
-import common
+from common import common, basic_settings as bs
 import numpy as np
 from nilearn import image, plotting, input_data
 import matplotlib.pyplot as plt
@@ -7,9 +7,14 @@ import os
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import scipy.stats as stats
+import pandas as pd
 
-DATASET_DIR = '/mnt/nfs/lss/lss_kahwang_hpc/data/MDTB/'
+DATASET_DIR = '/Volumes/lss_kahwang_hpc/data/MDTB/'
 ANALYSIS_DIR = DATASET_DIR + 'analysis/'
+stim_config_df = pd.read_csv(DATASET_DIR + bs.DECONVOLVE_DIR + bs.STIM_CONFIG)
+TASK_LIST = stim_config_df['Stim Label'].tolist()
+TASK_GROUP_LIST = zip(stim_config_df['Stim Label'], stim_config_df['Group'])
+print(bs.DECONVOLVE_DIR)
 
 
 def setup():
@@ -24,7 +29,6 @@ def setup():
     Nifti1Masker
         Object storing mask to transpose matrix back to MRI space
     """
-    ''''''
     # set directory tree and get subjects
 
     dir_tree = common.DirectoryTree(DATASET_DIR)
@@ -75,6 +79,7 @@ def setup():
                 beta_task_matrix[:, task_index] = beta_array
     #             else:
     #                 group_matrix[:, task_index - 43] = beta_array
+        beta_matrix[:, :, subject_index] = beta_task_matrix
 
         # get tstat matrix
         for task_index, i in enumerate(np.arange(3, 197, 3)):
@@ -91,6 +96,21 @@ def setup():
         subject_index += 1
 
     return beta_matrix, tstat_matrix, masker
+
+
+beta_matrix, tstat_matrix, masker = setup()
+# def differentiate_tasks():
+
+
+def spatial_correlation_PCA_and_tasks(PCA_components, task_betas):
+    normalized_tasks = normalize_task_matrix(task_betas)
+    correlation_matrix = np.zeros(
+        [PCA_components.shape[-1], normalized_tasks.shape[-1]])
+    for component_index in range(PCA_components.shape[-1]):
+        for task_index in range(normalized_tasks.shape[-1]):
+            corr = np.corrcoef(
+                PCA_components[:, component_index], normalized_tasks[:, task_index])
+            correlation_matrix[component_index, task_index] = corr
 
 
 def cluster_sub(sub_matrix, k):
@@ -148,11 +168,7 @@ def consensus_cluster(task_matrix, masker, label='beta'):
 
 
 def compute_PCA(task_matrix, masker):
-    # generate z scores for task columns (tasks are 2nd dimension)
-    PCA_matrix = stats.zscore(task_matrix, axis=1)
-
-    #  average z scores across all subjects (subjects are 3rd dimenison)
-    PCA_matrix = PCA_matrix.mean(2)
+    PCA_matrix = normalize_task_matrix(task_matrix)
 
     # set pca to explain 95% of variance
     pca = PCA(.95)
@@ -181,10 +197,12 @@ def compute_PCA(task_matrix, masker):
         # # be displayed below the cell
         # view.open_in_browser()
 
+    return PCA_components
+
 
 def normalize_task_matrix(matrix):
     print(matrix.shape)
-    # normalize each subject matrix
+    # normalize each subject matrix and average across subjects
     std_matrix = stats.zscore(matrix, axis=2)
     std_matrix = matrix.mean(2)
     return std_matrix
@@ -264,3 +282,62 @@ def threshold_arr(arr):
             new_arr[index] = 0
     print(new_arr)
     return new_arr
+
+
+# PCA on each individual tasks
+# greene et al - method : winner take all for each voxel, threshold
+
+def greene_method(task_matrix, threshold=0.750):
+    # z score standardization for each subject
+    task_matrix = stats.zscore(task_matrix, axis=2)
+
+    # initialize matrix to store winning task in each voxel for each subjects
+    # Shape is [Voxels, Subjects]
+    winner_take_all_list = [[None] * 20] * 960
+
+    # loop through each subject and each voxel to get winning task
+    for subject_index in range(task_matrix.shape[2]):
+        for voxel_index in range(task_matrix.shape[0]):
+            task_array = task_matrix[voxel_index, :, subject_index]
+            max_task_value = np.amax(task_array)
+            max_index = np.where(task_array == max_task_value)
+            # todo import task list and check if is in order of 3d brik
+            if len(max_index[0]) > 1:
+                print('more than one task')
+                task_name = 'Multiple'
+                is_specific = False
+            else:
+                task_name = TASK_LIST[max_index[0][0]]
+                is_specific = determine_specificity(
+                    task_array, max_task_value, max_index, threshold)
+
+            winner_take_all_list[voxel_index][subject_index] = [
+                max_task_value, task_name, is_specific]
+
+    return winner_take_all_list
+
+
+def determine_specificity(task_array, max_value, max_index, threshold):
+    threshold_value = max_value * threshold
+    for index, task_beta in enumerate(task_array):
+        if max_index == index:
+            continue
+        if task_beta > threshold_value:
+            return False
+
+    return True
+
+
+def group_tasks(task_matrix):
+
+    grouped_df = stim_config_df.groupby('Group')
+    print(len(grouped_df))
+    return
+
+    grouped_task_matrix = np.zeros(
+        [task_matrix.shape[0], len(grouped_df), task_matrix.shape[2]])
+
+    for subject_index in range(task_matrix.shape[2]):
+        for voxel_index in range(task_matrix.shape[0]):
+            for task_index in range(task_matrix.shape[1]):
+                print(stim_config_df.loc[0]['Group'])
