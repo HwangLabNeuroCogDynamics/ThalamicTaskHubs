@@ -1,4 +1,5 @@
-from common import common, basic_settings as bs
+import common
+import basic_settings as bs
 import numpy as np
 from nilearn import image, plotting, input_data
 import matplotlib.pyplot as plt
@@ -9,12 +10,11 @@ from sklearn.decomposition import PCA
 import scipy.stats as stats
 import pandas as pd
 
-DATASET_DIR = '/Volumes/lss_kahwang_hpc/data/MDTB/'
+DATASET_DIR = '/mnt/nfs/lss/lss_kahwang_hpc/data/MDTB/'
 ANALYSIS_DIR = DATASET_DIR + 'analysis/'
 stim_config_df = pd.read_csv(DATASET_DIR + bs.DECONVOLVE_DIR + bs.STIM_CONFIG)
 TASK_LIST = stim_config_df['Stim Label'].tolist()
-TASK_GROUP_LIST = zip(stim_config_df['Stim Label'], stim_config_df['Group'])
-print(bs.DECONVOLVE_DIR)
+GROUP_LIST = set(stim_config_df['Group'].to_list())
 
 
 def setup():
@@ -24,7 +24,10 @@ def setup():
     Returns
     -------
     numpy array
-        Matrix storing beta values [960 Voxels, 43 Tasks, 21 Subjects]
+        Matrix storing beta values [960 Voxels, 45 Tasks, 20 Subjects]
+
+    numpy array
+        Matrix storing tstat values [960 Voxels, 45 Tasks, 20 Subjects]
 
     Nifti1Masker
         Object storing mask to transpose matrix back to MRI space
@@ -36,14 +39,14 @@ def setup():
 
     # set number of subjects (four didn't run due to exclusion based on motion)
     # ,standard shape and affine
-    numsub = len(subjects) - 4
+    numsub = len(subjects) - 3
     STD_SHAPE = [79, 94, 65]
     STD_AFFINE = nib.load(
         subjects[1].deconvolve_dir + 'Go_FIR_MIN.nii.gz').affine
 
     # create complete matrix with 3 dimensions: voxels, tasks, and subjects
-    beta_matrix = np.zeros([960, 43, numsub])
-    tstat_matrix = np.zeros([960, 43, numsub])
+    beta_matrix = np.zeros([960, 45, numsub])
+    tstat_matrix = np.zeros([960, 45, numsub])
 
     # Get mask
     mask = nib.load(
@@ -60,34 +63,35 @@ def setup():
         filepath = sub.deconvolve_dir + 'FIRmodel_MNI_stats+tlrc.BRIK'
         if not os.path.exists(filepath):
             continue
+        print(f'loading sub {sub.name}')
 
         # load 3dDeconvolve bucket
         sub_fullstats_4d = nib.load(filepath)
         sub_fullstats_4d_data = sub_fullstats_4d.get_fdata()
 
-        beta_task_matrix = np.zeros([960, 43])
-        tstat_task_matrix = np.zeros([960, 43])
+        beta_task_matrix = np.zeros([960, 45])
+        tstat_task_matrix = np.zeros([960, 45])
         group_matrix = np.zeros([960, 30])
 
         # convert to 4d array with only betas, start at 2 and get every 3
-        for task_index, i in enumerate(np.arange(2, 197, 3)):
+        for task_index, i in enumerate(np.arange(2, 203, 3)):
             beta_array = sub_fullstats_4d_data[:, :, :, i]
             beta_array = nib.Nifti1Image(beta_array, STD_AFFINE)
             beta_array = masker.transform(beta_array).flatten()
 
-            if task_index < 43:
+            if task_index < 45:
                 beta_task_matrix[:, task_index] = beta_array
     #             else:
     #                 group_matrix[:, task_index - 43] = beta_array
         beta_matrix[:, :, subject_index] = beta_task_matrix
 
         # get tstat matrix
-        for task_index, i in enumerate(np.arange(3, 197, 3)):
+        for task_index, i in enumerate(np.arange(3, 203, 3)):
             tstat_array = sub_fullstats_4d_data[:, :, :, i]
             tstat_array = nib.Nifti1Image(tstat_array, STD_AFFINE)
             tstat_array = masker.transform(tstat_array).flatten()
 
-            if task_index < 43:
+            if task_index < 45:
                 tstat_task_matrix[:, task_index] = tstat_array
     #             else:
     #                 group_matrix[:, task_index - 43] = beta_array
@@ -97,20 +101,7 @@ def setup():
 
     return beta_matrix, tstat_matrix, masker
 
-
-beta_matrix, tstat_matrix, masker = setup()
 # def differentiate_tasks():
-
-
-def spatial_correlation_PCA_and_tasks(PCA_components, task_betas):
-    normalized_tasks = normalize_task_matrix(task_betas)
-    correlation_matrix = np.zeros(
-        [PCA_components.shape[-1], normalized_tasks.shape[-1]])
-    for component_index in range(PCA_components.shape[-1]):
-        for task_index in range(normalized_tasks.shape[-1]):
-            corr = np.corrcoef(
-                PCA_components[:, component_index], normalized_tasks[:, task_index])
-            correlation_matrix[component_index, task_index] = corr
 
 
 def cluster_sub(sub_matrix, k):
@@ -173,6 +164,14 @@ def compute_PCA(task_matrix, masker):
     # set pca to explain 95% of variance
     pca = PCA(.95)
     PCA_components = pca.fit_transform(PCA_matrix)
+
+    loadings = pd.DataFrame(pca.components_.T, index=TASK_LIST)
+    print(loadings)
+
+    correlated_loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+    correlated_loadings = pd.DataFrame(
+        correlated_loadings, index=TASK_LIST)
+    print(correlated_loadings)
 
     # Plot the explained variances
     # features = range(pca.n_components_)
@@ -293,7 +292,7 @@ def greene_method(task_matrix, threshold=0.750):
 
     # initialize matrix to store winning task in each voxel for each subjects
     # Shape is [Voxels, Subjects]
-    winner_take_all_list = [[None] * 20] * 960
+    winner_take_all_list = [[None] * task_matrix.shape[2]] * 960
 
     # loop through each subject and each voxel to get winning task
     for subject_index in range(task_matrix.shape[2]):
@@ -307,6 +306,7 @@ def greene_method(task_matrix, threshold=0.750):
                 task_name = 'Multiple'
                 is_specific = False
             else:
+                print(max_index[0])
                 task_name = TASK_LIST[max_index[0][0]]
                 is_specific = determine_specificity(
                     task_array, max_task_value, max_index, threshold)
@@ -329,15 +329,26 @@ def determine_specificity(task_array, max_value, max_index, threshold):
 
 
 def group_tasks(task_matrix):
-
+    print(GROUP_LIST)
     grouped_df = stim_config_df.groupby('Group')
-    print(len(grouped_df))
-    return
-
     grouped_task_matrix = np.zeros(
         [task_matrix.shape[0], len(grouped_df), task_matrix.shape[2]])
 
     for subject_index in range(task_matrix.shape[2]):
-        for voxel_index in range(task_matrix.shape[0]):
-            for task_index in range(task_matrix.shape[1]):
-                print(stim_config_df.loc[0]['Group'])
+        sub_dict = {}
+        for task_index in range(task_matrix.shape[1]):
+            print(task_index)
+            group = stim_config_df.loc[task_index]['Group']
+            if group in sub_dict:
+                print(group)
+                sub_dict[group] = sub_dict[group]
+                + task_matrix[:, task_index, subject_index]
+            else:
+                sub_dict[group] = list(
+                    task_matrix[:, task_index, subject_index])
+
+        for index, group in enumerate(GROUP_LIST):
+            averaged_group_task = np.mean(sub_dict[group], axis=0)
+            grouped_task_matrix[:, index, subject_index] = averaged_group_task
+
+    return grouped_task_matrix
