@@ -111,7 +111,6 @@ def setup_blocked(subjects, numsub, masker, std_affine, dataset_key):
 
     return beta_matrix, tstat_matrix, masker
 
-
 def setup_many_tasks(subjects, numsub, masker, std_affine, dataset_key):
     num_tasks = 45
     # create complete matrix with 3 dimensions: voxels, tasks, and subjects
@@ -448,7 +447,6 @@ def participation_coefficient_thr(task_matrix, masker, label='beta'):
     nib.save(PC_matrix,  label + '_participation_coefficient_thr.nii')
 
     return PC_matrix
-
 
 def threshold_arr(arr):
     new_arr = np.empty(arr.shape)
