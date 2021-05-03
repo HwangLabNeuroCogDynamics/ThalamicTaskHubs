@@ -16,7 +16,7 @@ stim_config_df = pd.read_csv(MDTB_DIR + paths.DECONVOLVE_DIR + paths.STIM_CONFIG
 TASK_LIST = stim_config_df["Stim Label"].tolist()
 GROUP_LIST = list(set(stim_config_df["Group"].to_list()))
 MDTB_STD_SHAPE = [79, 94, 65]
-MDTB_VOXELS = 960
+MDTB_VOXELS = 2227
 
 
 def setup_blocked(subjects, numsub, masker, std_affine, dataset_key):
@@ -141,15 +141,16 @@ def setup_mdtb(dataset_key, is_setup_block=True):
     std_affine = nib.load(subjects[1].deconvolve_dir + "Go_FIR_MIN.nii.gz").affine
 
     # Get mask
-    mask = nib.load(masks.MOREL_PATH)
-    mask = image.math_img("img>0", img=mask)
-    # mask = image.resample_img(mask, target_affine=std_affine,
-    #                          target_shape=STD_SHAPE, interpolation='nearest')
+    # mask = nib.load(masks.MOREL_PATH)
+    # mask = image.math_img("img>0", img=mask)
+    # # mask = image.resample_img(mask, target_affine=std_affine,
+    # #                          target_shape=STD_SHAPE, interpolation='nearest')
+    # masker = input_data.NiftiMasker(
+    #     mask, target_affine=std_affine, target_shape=MDTB_STD_SHAPE
+    # )
+    # masker.fit()
 
-    masker = input_data.NiftiMasker(
-        mask, target_affine=std_affine, target_shape=MDTB_STD_SHAPE
-    )
-    masker.fit()
+    masker = masks.get_binary_mask(masks.MOREL_PATH)
 
     if is_setup_block:
         return setup_blocked(subjects, numsub, masker, std_affine, dataset_key)
@@ -176,23 +177,44 @@ def zscore_subject_2d(matrix):
 
 
 IBC_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/IBC/"
+IBC_CONDITIONS_DF = pd.read_csv(
+    "/mnt/nfs/lss/lss_kahwang_hpc/scripts/ibc_authors/ibc_data/conditions.tsv",
+    sep="\t",
+)
+IBC_CONDITIONS_DF.at[253, "contrast"] = "null"
+IBC_VOXELS = 2227
 
 
 def setup_ibc():
     dir_tree = base.DirectoryTree(IBC_DIR)
-    subjects = base.get_subjects(dir_tree.bids_dir, dir_tree)
+    glm_dir = IBC_DIR + "glm/"
+    subjects = base.get_subjects(glm_dir, dir_tree)
     numsub = len(subjects)
     masker = masks.get_binary_mask(masks.MOREL_PATH)
 
-    nii_files = sorted(glob.glob(IBC_DIR + "neurovault/*.nii.gz"))
+    conditions_matrix = np.empty([numsub, len(IBC_CONDITIONS_DF.index), IBC_VOXELS])
+    for sub_index, subject in enumerate(subjects):
+        print(sub_index)
+        sub_beta_files = glob.glob(
+            glm_dir
+            + subject.sub_dir
+            + "ses-*/res_stats_*_ffx/effect_size_maps/*.nii.gz",
+            recursive=True,
+        )
 
-    ibc_data_list = [[] for subject in subjects]
-    for file in nii_files:
-        print(file)
-        sub_name = base.parse_sub_from_file(file)
-        index_sub = subjects.get_sub_index(sub_name)
-        img = nib.load(file)
-        img_masked = masker.fit_transform(img).flatten()
-        ibc_data_list[index_sub].append(img_masked)
+        for condition_index, row in IBC_CONDITIONS_DF.iterrows():
+            condition = row["contrast"]
+            task = row["task"]
+            condition_files = sorted(
+                [x for x in sub_beta_files if condition and task in x], key=len
+            )
 
-    print("done")
+            if any(condition_files):
+                condition_file = condition_files[0]
+            else:
+                continue
+            nii_img = nib.load(condition_file)
+            masked_img = masker.fit_transform(nii_img)
+            conditions_matrix[sub_index, condition_index, :] = masked_img
+
+    np.save("ibc_conditions.npy", conditions_matrix)
