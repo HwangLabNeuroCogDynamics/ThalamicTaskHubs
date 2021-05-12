@@ -81,25 +81,6 @@ def cluster_sub(sub_matrix, k):
     # plus 1 is just for plotting purposes, labels with 0 show up not having color
     return model.labels_ + 1, model
 
-
-def plot_clusters(sub_matrix):
-    ks = range(2, 10)
-    inertias = []
-    for k in ks:
-        cluster_atlas, model = cluster_sub(sub_matrix, k)
-        plotting.plot_roi(cluster_atlas, cmap=plt.cm.get_cmap("tab10"))
-        plotting.show()
-
-        # Append the inertia to the list of inertias
-        inertias.append(model.inertia_)
-
-    plt.plot(ks, inertias, "-o", color="black")
-    plt.xlabel("number of clusters, k")
-    plt.ylabel("inertia")
-    plt.xticks(ks)
-    plt.show()
-
-
 def consensus_cluster(task_matrix, masker, label="beta"):
     # consensus clustering
 
@@ -121,6 +102,27 @@ def consensus_cluster(task_matrix, masker, label="beta"):
         final_consensus_cluster, model = cluster_sub(mean_matrix, k_cluster)
         final_consensus_cluster = masker.inverse_transform(final_consensus_cluster)
         nib.save(final_consensus_cluster, f"{label}_consensus_cluster_{k_cluster}.nii")
+
+
+def plot_clusters(sub_matrix):
+    ks = range(2, 10)
+    inertias = []
+    for k in ks:
+        cluster_atlas, model = cluster_sub(sub_matrix, k)
+        plotting.plot_roi(cluster_atlas, cmap=plt.cm.get_cmap("tab10"))
+        plotting.show()
+
+        # Append the inertia to the list of inertias
+        inertias.append(model.inertia_)
+
+    plt.plot(ks, inertias, "-o", color="black")
+    plt.xlabel("number of clusters, k")
+    plt.ylabel("inertia")
+    plt.xticks(ks)
+    plt.show()
+
+
+
 
 
 def compute_PCA(task_matrix, masker, output_name):

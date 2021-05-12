@@ -185,20 +185,22 @@ IBC_CONDITIONS_DF.at[253, "contrast"] = "null"
 IBC_VOXELS = 2227
 
 
-def setup_ibc():
+def setup_ibc(file_wc, output_file, two_runs=False):
     dir_tree = base.DirectoryTree(IBC_DIR)
     glm_dir = IBC_DIR + "glm/"
     subjects = base.get_subjects(glm_dir, dir_tree)
-    numsub = len(subjects)
+    numsub = len(subjects) - 2
     masker = masks.get_binary_mask(masks.MOREL_PATH)
 
-    conditions_matrix = np.empty([numsub, len(IBC_CONDITIONS_DF.index), IBC_VOXELS])
-    for sub_index, subject in enumerate(subjects):
-        print(sub_index)
-        sub_beta_files = glob.glob(
-            glm_dir
-            + subject.sub_dir
-            + "ses-*/res_stats_*_ffx/effect_size_maps/*.nii.gz",
+    conditions_matrix = np.zeros([numsub, len(IBC_CONDITIONS_DF.index), IBC_VOXELS])
+    sub_index = -1
+    for subject in subjects:
+        if subject.name == "02" or subject.name == "08":
+            continue
+        sub_index += 1
+
+        sub_effect_sz_files = glob.glob(
+            glm_dir + subject.sub_dir + file_wc,
             recursive=True,
         )
 
@@ -206,15 +208,25 @@ def setup_ibc():
             condition = row["contrast"]
             task = row["task"]
             condition_files = sorted(
-                [x for x in sub_beta_files if condition and task in x], key=len
+                [x for x in sub_effect_sz_files if condition and task in x], key=len
             )
 
-            if any(condition_files):
+            if len(condition_files) >= 2 and len(condition_files[0]) == len(
+                condition_files[1]
+            ):
+                img_one = masker.fit_transform(nib.load(condition_files[0]))
+                img_two = masker.fit_transform(nib.load(condition_files[1]))
+                fit_imgs = np.empty([img_one.shape[0], img_one.shape[1], 2])
+                fit_imgs[:, :, 0] = img_one
+                fit_imgs[:, :, 1] = img_two
+                masked_img = np.mean(fit_imgs, axis=2)
+            elif any(condition_files):
                 condition_file = condition_files[0]
+                nii_img = nib.load(condition_file)
+                masked_img = masker.fit_transform(nii_img)
             else:
                 continue
-            nii_img = nib.load(condition_file)
-            masked_img = masker.fit_transform(nii_img)
+
             conditions_matrix[sub_index, condition_index, :] = masked_img
 
-    np.save("ibc_conditions.npy", conditions_matrix)
+    np.save(dir_tree.analysis_dir + output_file, conditions_matrix)
