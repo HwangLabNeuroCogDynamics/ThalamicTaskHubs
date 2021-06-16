@@ -18,12 +18,17 @@ GROUP_LIST = list(set(stim_config_df["Group"].to_list()))
 MDTB_STD_SHAPE = [79, 94, 65]
 MDTB_VOXELS = 2227
 
+BETA_TASK_START = 2
+TSTAT_TASK_START = 3
+TASK_END = 77
+# def setup_cortical(subjects, numsub, masker, std_affine, dataset_key)
 
-def setup_blocked(subjects, numsub, masker, std_affine, dataset_key):
+
+def setup_blocked(subjects, numsub, masker, std_affine, dataset_key, voxels):
     # create complete matrix with 3 dimensions: voxels, tasks, and subjects
     num_tasks = 25
-    beta_matrix = np.empty([MDTB_VOXELS, num_tasks, numsub])
-    tstat_matrix = np.empty([MDTB_VOXELS, num_tasks, numsub])
+    beta_matrix = np.empty([voxels, num_tasks, numsub])
+    tstat_matrix = np.empty([voxels, num_tasks, numsub])
     subject_index = 0
     for sub in subjects:
         filepath = (
@@ -36,28 +41,19 @@ def setup_blocked(subjects, numsub, masker, std_affine, dataset_key):
 
         # load 3dDeconvolve bucket
         sub_fullstats_4d = nib.load(filepath)
-        sub_fullstats_4d_data = sub_fullstats_4d.get_fdata()
+        sub_fullstats_4d_data = masker.fit_transform(sub_fullstats_4d)
 
-        beta_task_matrix = np.empty([MDTB_VOXELS, num_tasks])
-        tstat_task_matrix = np.empty([MDTB_VOXELS, num_tasks])
+        beta_task_matrix = np.empty([voxels, num_tasks])
+        tstat_task_matrix = np.empty([voxels, num_tasks])
 
-        # visualize each beta array to ensure affine is correct
         # convert to 4d array with only betas, start at 2 and get every 3
-        for task_index, i in enumerate(np.arange(2, 77, 3)):
-            beta_array = sub_fullstats_4d_data[:, :, :, i]
-            beta_array = nib.Nifti1Image(beta_array, std_affine)
-            beta_array = masker.transform(beta_array).flatten()
-            beta_task_matrix[:, task_index] = beta_array
+        for task_index, stat_index in enumerate(np.arange(2, 77, 3)):
+            beta_task_matrix[:, task_index] = sub_fullstats_4d_data[stat_index, :]
+        # get tstat matrix
+        for task_index, stat_index in enumerate(np.arange(3, 77, 3)):
+            tstat_task_matrix[:, task_index] = sub_fullstats_4d_data[stat_index, :]
 
         beta_matrix[:, :, subject_index] = beta_task_matrix
-
-        # get tstat matrix
-        for task_index, i in enumerate(np.arange(3, 77, 3)):
-            tstat_array = sub_fullstats_4d_data[:, :, :, i]
-            tstat_array = nib.Nifti1Image(tstat_array, std_affine)
-            tstat_array = masker.transform(tstat_array).flatten()
-            tstat_task_matrix[:, task_index] = tstat_array
-
         tstat_matrix[:, :, subject_index] = tstat_task_matrix
         subject_index += 1
 
@@ -150,7 +146,7 @@ def setup_mdtb(dataset_key, is_setup_block=True):
     # )
     # masker.fit()
 
-    masker = masks.get_binary_mask(masks.MOREL_PATH)
+    masker = masks.get_binary_masker(masks.MOREL_PATH)
 
     if is_setup_block:
         return setup_blocked(subjects, numsub, masker, std_affine, dataset_key)
@@ -230,3 +226,15 @@ def setup_ibc(file_wc, output_file, two_runs=False):
             conditions_matrix[sub_index, condition_index, :] = masked_img
 
     np.save(dir_tree.analysis_dir + output_file, conditions_matrix)
+
+
+# dir_tree = base.DirectoryTree(MDTB_DIR)
+# subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree)
+# numsub = len(subjects)
+# std_affine = nib.load(subjects[1].deconvolve_dir + "Go_FIR_MIN.nii.gz").affine
+# schaefer_mask = masks.get_roi_masker(masks.SCHAEFER_YEO7_PATH)
+# cort_beta_matrix, tstat_matrix, masker = setup_blocked(
+#     subjects, numsub, schaefer_mask, std_affine, "block", 400
+# )
+# zscored_cort_matrix = zscore_subject_2d(cort_beta_matrix)
+# np.save(dir_tree.analysis_dir + "beta_cortical.npy", zscored_cort_matrix)
