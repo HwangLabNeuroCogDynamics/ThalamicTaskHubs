@@ -26,18 +26,28 @@ fc_data = fc.FcData(
     cores=1,
 )
 
-fc_matrix = np.empty([2227, 400, len(fc_data.fc_subjects)])
-for i in range(len(fc_data.fc_subjects)):
-    calculated_fc_subject = fc.try_fc_sub(
-        fc_data.n_masker,
-        fc_data.m_masker,
-        fc_data.n,
-        fc_data.m,
-        fc_data.bold_WC,
-        fc_data.censor,
-        fc_data.censor_WC,
-        fc_data.is_denoise,
-        fc_data.bold_dir,
-        fc_data.fc_subjects[i],
-    )
-    fc_matrix[:, :, i] = calculated_fc_subject.seed_to_voxel_correlations
+# fc_matrix = np.empty([2227, 400, len(fc_data.fc_subjects)])
+# for i in range(len(fc_data.fc_subjects)):
+#     calculated_fc_subject = fc.try_fc_sub(
+#         fc_data.n_masker,
+#         fc_data.m_masker,
+#         fc_data.n,
+#         fc_data.m,
+#         fc_data.bold_WC,
+#         fc_data.censor,
+#         fc_data.censor_WC,
+#         fc_data.is_denoise,
+#         fc_data.bold_dir,
+#         fc_data.fc_subjects[i],
+#     )
+#     fc_matrix[:, :, i] = calculated_fc_subject.seed_to_voxel_correlations
+# np.save(dir_tree.analysis_dir + "fc_task_residuals.npy", fc_matrix)
+
+fc_matrix = np.load(
+    dir_tree.analysis_dir + "fc_task_residuals.p.npy", allow_pickle=True
+)
+for sub_index in range(len(fc_data.fc_subjects)):
+    fc_subject = fc_data.fc_subjects[sub_index]
+    fc_subject.seed_to_voxel_correlations = fc_matrix[:, :, sub_index]
+    fc_data.fc_subjects[sub_index] = fc_subject
+fc_data.save()
