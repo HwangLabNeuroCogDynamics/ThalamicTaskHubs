@@ -154,24 +154,6 @@ def setup_mdtb(dataset_key, is_setup_block=True):
         return setup_many_tasks(subjects, numsub, masker, std_affine, dataset_key)
 
 
-def zscore_subject_2d(matrix):
-    # 2D matrix shape [voxels, tasks]
-    zscored_matrix = np.empty(matrix.shape)
-
-    # zscore across 2d (voxel, task) within subject
-    sample_mean = np.mean(matrix)
-    std_dev = np.std(matrix)
-    print(sample_mean)
-    print(std_dev)
-
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            zscored_matrix[i, j] = (matrix[i, j] - sample_mean) / std_dev
-
-    print(np.mean(zscored_matrix))
-    return zscored_matrix
-
-
 IBC_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/IBC/"
 IBC_CONDITIONS_DF = pd.read_csv(
     "/mnt/nfs/lss/lss_kahwang_hpc/scripts/ibc_authors/ibc_data/conditions.tsv",
