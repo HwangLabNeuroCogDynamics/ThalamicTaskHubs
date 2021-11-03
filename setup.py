@@ -109,7 +109,7 @@ def setup_many_tasks(subjects, numsub, masker, std_affine, dataset_key):
     return beta_matrix, tstat_matrix, masker
 
 
-def setup_mdtb(dataset_key, is_setup_block=True):
+def setup_mdtb(dataset_key, masker, is_setup_block=True):
     """Load data.
 
     Loads 3dDeconvolve data into matrix with 3D [VOXELS, 43, 21]
@@ -146,10 +146,8 @@ def setup_mdtb(dataset_key, is_setup_block=True):
     # )
     # masker.fit()
 
-    masker = masks.get_binary_masker(masks.MOREL_PATH)
-
     if is_setup_block:
-        return setup_blocked(subjects, numsub, masker, std_affine, dataset_key)
+        return setup_blocked(subjects, numsub, masker, std_affine, dataset_key, voxels)
     else:
         return setup_many_tasks(subjects, numsub, masker, std_affine, dataset_key)
 

@@ -9,22 +9,21 @@ MDTB_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/MDTB/"
 dir_tree = base.DirectoryTree(MDTB_DIR)
 subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree)
 
-
-n_masker = masks.get_binary_masker(masks.MOREL_PATH)
-m_masker = masks.get_roi_masker(masks.SCHAEFER_YEO7_PATH)
+masker = masks.get_roi_masker(masks.SCHAEFER_900_7N_PATH)
 print(dir_tree.deconvolve_dir)
 fc_data = fc.FcData(
     MDTB_DIR,
-    n_masker,
-    m_masker,
-    "fc_task_residuals",
+    masker,
+    masker,
+    "fc_task_residuals_900",
     subjects=subjects,
     censor=False,
     is_denoise=False,
     bold_dir=dir_tree.deconvolve_dir,
     bold_WC="*FIRmodel_errts_block.nii.gz",
-    cores=1,
+    cores=4,
 )
+fc_data.calc_fc()
 
 # fc_matrix = np.empty([2227, 400, len(fc_data.fc_subjects)])
 # for i in range(len(fc_data.fc_subjects)):
@@ -43,11 +42,12 @@ fc_data = fc.FcData(
 #     fc_matrix[:, :, i] = calculated_fc_subject.seed_to_voxel_correlations
 # np.save(dir_tree.analysis_dir + "fc_task_residuals.npy", fc_matrix)
 
-fc_matrix = np.load(
-    dir_tree.analysis_dir + "fc_task_residuals.p.npy", allow_pickle=True
-)
-for sub_index in range(len(fc_data.fc_subjects)):
-    fc_subject = fc_data.fc_subjects[sub_index]
-    fc_subject.seed_to_voxel_correlations = fc_matrix[:, :, sub_index]
-    fc_data.fc_subjects[sub_index] = fc_subject
-fc_data.save()
+
+# fc_matrix = pickle.load(
+#     dir_tree.analysis_dir + "fc_task_residuals_900.p"
+# )
+# for sub_index in range(len(fc_data.fc_subjects)):
+#     fc_subject = fc_data.fc_subjects[sub_index]
+#     fc_subject.seed_to_voxel_correlations = fc_matrix[:, :, sub_index]
+#     fc_data.fc_subjects[sub_index] = fc_subject
+# fc_data.save()
