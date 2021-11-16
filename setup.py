@@ -12,7 +12,8 @@ import glob2 as glob
 
 MDTB_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/MDTB/"
 
-stim_config_df = pd.read_csv(MDTB_DIR + paths.DECONVOLVE_DIR + paths.STIM_CONFIG)
+stim_config_df = pd.read_csv(
+    MDTB_DIR + paths.DECONVOLVE_DIR + paths.STIM_CONFIG)
 TASK_LIST = stim_config_df["Stim Label"].tolist()
 GROUP_LIST = list(set(stim_config_df["Group"].to_list()))
 MDTB_STD_SHAPE = [79, 94, 65]
@@ -48,10 +49,12 @@ def setup_blocked(subjects, numsub, masker, std_affine, dataset_key, voxels):
 
         # convert to 4d array with only betas, start at 2 and get every 3
         for task_index, stat_index in enumerate(np.arange(2, 77, 3)):
-            beta_task_matrix[:, task_index] = sub_fullstats_4d_data[stat_index, :]
+            beta_task_matrix[:,
+                             task_index] = sub_fullstats_4d_data[stat_index, :]
         # get tstat matrix
         for task_index, stat_index in enumerate(np.arange(3, 77, 3)):
-            tstat_task_matrix[:, task_index] = sub_fullstats_4d_data[stat_index, :]
+            tstat_task_matrix[:,
+                              task_index] = sub_fullstats_4d_data[stat_index, :]
 
         beta_matrix[:, :, subject_index] = beta_task_matrix
         tstat_matrix[:, :, subject_index] = tstat_task_matrix
@@ -134,7 +137,8 @@ def setup_mdtb(dataset_key, masker, is_setup_block=True):
     # set number of subjects (four didn't run due to exclusion based on motion)
     # ,standard shape and affine
     numsub = len(subjects)
-    std_affine = nib.load(subjects[1].deconvolve_dir + "Go_FIR_MIN.nii.gz").affine
+    std_affine = nib.load(
+        subjects[1].deconvolve_dir + "Go_FIR_MIN.nii.gz").affine
 
     # Get mask
     # mask = nib.load(masks.MOREL_PATH)
@@ -168,7 +172,8 @@ def setup_ibc(file_wc, output_file, two_runs=False):
     numsub = len(subjects) - 2
     masker = masks.get_binary_mask(masks.MOREL_PATH)
 
-    conditions_matrix = np.zeros([numsub, len(IBC_CONDITIONS_DF.index), IBC_VOXELS])
+    conditions_matrix = np.zeros(
+        [numsub, len(IBC_CONDITIONS_DF.index), IBC_VOXELS])
     sub_index = -1
     for subject in subjects:
         if subject.name == "02" or subject.name == "08":
@@ -212,7 +217,7 @@ def setup_ibc(file_wc, output_file, two_runs=False):
 # subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree)
 # numsub = len(subjects)
 # std_affine = nib.load(subjects[1].deconvolve_dir + "Go_FIR_MIN.nii.gz").affine
-# schaefer_mask = masks.get_roi_masker(masks.SCHAEFER_YEO7_PATH)
+# schaefer_mask = masks.roi_masker(masks.SCHAEFER_YEO7_PATH)
 # cort_beta_matrix, tstat_matrix, masker = setup_blocked(
 #     subjects, numsub, schaefer_mask, std_affine, "block", 400
 # )

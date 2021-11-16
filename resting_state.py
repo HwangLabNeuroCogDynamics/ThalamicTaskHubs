@@ -9,7 +9,7 @@ MDTB_DIR = "/mnt/nfs/lss/lss_kahwang_hpc/data/MDTB/"
 dir_tree = base.DirectoryTree(MDTB_DIR)
 subjects = base.get_subjects(dir_tree.deconvolve_dir, dir_tree)
 
-masker = masks.get_roi_masker(masks.SCHAEFER_900_7N_PATH)
+masker = masks.roi_masker(masks.SCHAEFER_900_7N_PATH)
 print(dir_tree.deconvolve_dir)
 fc_data = fc.FcData(
     MDTB_DIR,
