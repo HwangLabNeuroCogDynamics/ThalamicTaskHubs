@@ -1,6 +1,6 @@
 from thalpy import base
 from thalpy.constants import paths
-from thalpy.analysis import masks
+from thalpy import masks
 
 import numpy as np
 import nibabel as nib
