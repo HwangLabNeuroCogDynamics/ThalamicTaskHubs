@@ -112,7 +112,7 @@ def setup_many_tasks(subjects, numsub, masker, std_affine, dataset_key):
     return beta_matrix, tstat_matrix, masker
 
 
-def setup_mdtb(dataset_key, masker, is_setup_block=True):
+def setup_mdtb(dataset_key, masker, is_setup_block=True, voxels=2227):
     """Load data.
 
     Loads 3dDeconvolve data into matrix with 3D [VOXELS, 43, 21]
