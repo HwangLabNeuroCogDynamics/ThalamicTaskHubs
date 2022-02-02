@@ -275,7 +275,7 @@ def load_cortical_ts(subjects, cortical_mask):
     cortical_masker = input_data.NiftiLabelsMasker(cortical_mask)
     for sub_index, sub in enumerate(subjects):
         print(sub_index)
-        funcfile = nib.load(sub.deconvolve_dir + 'FIRmodel_errts_norest.nii.gz')
+        funcfile = nib.load(sub.deconvolve_dir + 'FIRmodel_errts_block.nii.gz')
         #ftemplate = nib.load(sub.deconvolve_dir +'NoGo_FIR_MIN.nii.gz')
         #cortical_mask = resample_to_img(cortical_mask, ftemplate, interpolation = 'nearest')
         cortical_ts.append(cortical_masker.fit_transform(funcfile))
@@ -306,7 +306,7 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
     whole_brain_af_predicition_accu =  np.zeros((num_sub, num_roi))
 
     for sub_index, sub in enumerate(subs):
-        funcfile = sub.deconvolve_dir + 'FIRmodel_errts_norest_rs.nii.gz' # this is data in the 2x2x2 grid, must be the same as the ROI.
+        funcfile = sub.deconvolve_dir + 'FIRmodel_errts_block_rs.nii.gz' # this is data in the 2x2x2 grid, must be the same as the ROI.
         fdata = nib.load(funcfile).get_fdata() #preload data to save time without using nilearn masker    
     
         for roi in np.arange(num_roi):
@@ -317,7 +317,7 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
             #num_voxels = np.sum(roi_voxel_mask.get_fdata()!=0) 
             roi_voxel_masker = input_data.NiftiLabelsMasker(roi_voxel_mask) #here using label maser, which will make each voxel with unique integer a unique ROI.
             #need to extract voxel wise task beta for each roi
-            roi_beta_matrix = glm.load_brik([sub], roi_voxel_masker, "FIRmodel_MNI_stats_norest.nii.gz" , tasks, zscore=True, kind="beta")
+            roi_beta_matrix = glm.load_brik([sub], roi_voxel_masker, "FIRmodel_MNI_stats_block_rs.nii.gz" , tasks, zscore=True, kind="beta")
             
             #then need to calculate voxel-whole brain FC matrix
             roi_mask = make_roi_mask(source_roi, roi)
@@ -413,10 +413,11 @@ TOMOYA_TASKS = stim_config_df["Stim Label"].tolist()
 tomoya_masker = masks.binary_masker(masks.MOREL_PATH)
 tomoya_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/data/Tomoya/3dDeconvolve/sub-01/FIRmodel_MNI_stats.nii'))
 tomoya_beta_matrix = glm.load_brik(tomoya_subjects, tomoya_masker, 'FIRmodel_MNI_stats.nii', TOMOYA_TASKS, zscore = True, kind="beta")
-    
 # z-score
 tomoya_beta_matrix[tomoya_beta_matrix>3] = 0
 tomoya_beta_matrix[tomoya_beta_matrix<-3] = 0
+np.save('data/tomoya_beta_matrix', tomoya_beta_matrix)    
+
 
 #run pca
 tomoya_pca_WxV = np.zeros([2227, 6])
@@ -446,12 +447,10 @@ mdtb_masker = masks.binary_masker(masks.MOREL_PATH)
 mdtb_masker.fit(img)
 
 #pull betas
-mdtb_beta_matrix = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_norest+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-
-#load zscored betas
-#mdtb_beta_matrix = np.load(MDTB_ANALYSIS_DIR + 'mdtb_task_zscored.npy') #check with Evan on how this is generated, used different function than Tomoya?
+mdtb_beta_matrix = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
 mdtb_beta_matrix[mdtb_beta_matrix>3] = 0
 mdtb_beta_matrix[mdtb_beta_matrix<-3] = 0
+np.save('data/mdtb_beta_matrx', mdtb_beta_matrix)
 
 # # average then PCA
 # mdtb_pca_comps, mdtb_loadings, mdtb_explained_var = run_pca(np.mean(mdtb_beta_matrix, axis=2), MDTB_DIR_TREE, 'mdtb_pca_groupave', TASK_LIST, masker=mdtb_masker)
@@ -502,7 +501,11 @@ fig.savefig("/home/kahwang/RDSS/tmp/pcvarexp.png")
 ################################################
 
 ######## load cortical betas for hierarchical clustering for MDTB
-cortical_betas = np.load(MDTB_ANALYSIS_DIR + "beta_cortical.npy") #z-scored already
+Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
+Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
+mdtb_cortical_betas = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+np.save('data/mdtb_cortical_betas', mdtb_cortical_betas)
+cortical_betas = np.load('data/mdtb_cortical_betas.npy') #z-scored already
 cortical_betas_2d = np.empty([400*21, 25]) #concat across subjects
 for i in np.arange(21):
     for j in np.arange(400):
@@ -521,7 +524,7 @@ for s in np.arange(21):
         conditions_cluster = hier_cluster(cortical_betas_2d, n_clusters=c)
 
         for k in np.arange(len(np.unique(conditions_cluster.labels_))):
-            group = [condition for i, condition in enumerate(TASK_LIST) if k == conditions_cluster.labels_[i]]
+            group = [condition for i, condition in enumerate(MDTB_TASKS) if k == conditions_cluster.labels_[i]]
             #print(f'k: {k}  group: {group}')
 
         pc_matrix = pc.pc_subject(abs(mdtb_beta_matrix)[:,:,s], conditions_cluster.labels_, thresholds=thresholds)
@@ -768,10 +771,12 @@ tomoya_activity_flow_uniform, _, _ = activity_flow_subject(tomoya_fc, np.ones((t
 #load whole brain ROI mask, here we combine Schaeffer with several subcortical masks
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-Schaefer400_beta_matrix = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_norest+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-#Schaeffer400_cortical_ts = load_cortical_ts(mdtb_subjects, Schaefer400)
-#np.save('data/Schaeffer400_cortical_ts', Schaeffer400_cortical_ts)
-Schaeffer400_cortical_ts = np.load('data/Schaeffer400_cortical_ts', allow_pickle=True)
+Schaefer400_beta_matrix = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+np.save("data/Schaefer400_beta_matrix", Schaefer400_beta_matrix)
+Schaefer400_beta_matrix = np.load("data/Schaefer400_beta_matrix.npy")
+Schaeffer400_cortical_ts = load_cortical_ts(mdtb_subjects, Schaefer400)
+np.save('data/Schaeffer400_cortical_ts', Schaeffer400_cortical_ts)
+Schaeffer400_cortical_ts = np.load('data/Schaeffer400_cortical_ts.npy', allow_pickle=True)
 #cortical_ts = np.load('data/Schaeffer400_cortical_ts', allow_pickle=True)
 subs = mdtb_subjects
 tasks = MDTB_TASKS
