@@ -5,10 +5,9 @@ import pandas as pd
 import seaborn as sns
 import nibabel as nib
 import matplotlib.pyplot as plt
-from thalpy.constants import paths 
 ### thalpy is a lab-wide library for common funcitons we use in our lab
 ### see: https://github.com/HwangLabNeuroCogDynamics/thalpy
-from matplotlib import pyplot as plt
+from thalpy.constants import paths 
 from thalpy.analysis import pc, plotting, feature_extraction, glm, fc
 from thalpy import masks, base 
 from scipy.stats import spearmanr
@@ -18,7 +17,7 @@ from nilearn import image, input_data, masking
 import nilearn.image
 from nilearn.image import resample_to_img, index_img
 sns.set_context('paper', font_scale=1.5)
-sns.set_palette("colorblind")
+sns.set_palette("colorblind") #be kind
 plt.ion()
 
 ################################################
@@ -475,19 +474,22 @@ TOMOYA_TASKS = stim_config_df["Stim Label"].tolist()
 
 
 ################################################
-######## PCA analaysis, Figure 1
+######## PCA analaysis to look for LD organization of thalamic task eveokd activity, Figure 1
 ################################################
 #MNI thalamus mask
 mni_thalamus_masker = masks.binary_masker("/home/kahwang/bsh/ROIs/mni_atlas/MNI_thalamus_2mm.nii.gz")
-
-#### Tomoya N&N dataset
-#tomoya_masker = masks.binary_masker(masks.MOREL_PATH)
 tomoya_masker = mni_thalamus_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/data/Tomoya/3dDeconvolve/sub-01/FIRmodel_MNI_stats+tlrc.BRIK'))
-tomoya_beta_matrix = glm.load_brik(tomoya_subjects, tomoya_masker, 'FIRmodel_MNI_stats+tlrc.BRIK', TOMOYA_TASKS, zscore = True, kind="beta")
-# z-score
-tomoya_beta_matrix[tomoya_beta_matrix>3] = 0
-tomoya_beta_matrix[tomoya_beta_matrix<-3] = 0
-np.save('data/tomoya_beta_matrix', tomoya_beta_matrix)    
+#### Tomoya N&N dataset
+def run_tomoya_beta_matrix(mni_thalamus_masker):
+    tomoya_masker = mni_thalamus_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/data/Tomoya/3dDeconvolve/sub-01/FIRmodel_MNI_stats+tlrc.BRIK'))
+    tomoya_beta_matrix = glm.load_brik(tomoya_subjects, tomoya_masker, 'FIRmodel_MNI_stats+tlrc.BRIK', TOMOYA_TASKS, zscore = True, kind="beta")
+    # z-score
+    tomoya_beta_matrix[tomoya_beta_matrix>3] = 0
+    tomoya_beta_matrix[tomoya_beta_matrix<-3] = 0
+    np.save('data/tomoya_beta_matrix', tomoya_beta_matrix)    
+
+#run_tomoya_beta_matrix(mni_thalamus_masker)
+tomoya_beta_matrix = np.load('data/tomoya_beta_matrix.npy')
 
 #run pca
 tomoya_pca_WxV = np.zeros([masks.masker_count(tomoya_masker), 6])
@@ -512,15 +514,17 @@ tomoya_pca_weight = tomoya_masker.inverse_transform(np.mean(tomoya_pca_WxV, axis
 nib.save(tomoya_pca_weight, "images/tomoya_pca_weight.nii.gz")
 
 #### MDTB dataset
-img = nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
-#mdtb_masker = masks.binary_masker(masks.MOREL_PATH)
 mdtb_masker = mni_thalamus_masker.fit(nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"))
+def run_mdtb_beta_matrix(mni_thalamus_masker):
+    mdtb_masker = mni_thalamus_masker.fit(nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"))
+    #pull betas
+    mdtb_beta_matrix = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+    mdtb_beta_matrix[mdtb_beta_matrix>3] = 0
+    mdtb_beta_matrix[mdtb_beta_matrix<-3] = 0
+    np.save('data/mdtb_beta_matrx', mdtb_beta_matrix)
 
-#pull betas
-mdtb_beta_matrix = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-mdtb_beta_matrix[mdtb_beta_matrix>3] = 0
-mdtb_beta_matrix[mdtb_beta_matrix<-3] = 0
-np.save('data/mdtb_beta_matrx', mdtb_beta_matrix)
+#run_mdtb_beta_matrix(mni_thalamus_masker)
+mdtb_beta_matrix = np.load('data/mdtb_beta_matrx.npy')
 
 # # average then PCA. bad idea, if want to do this across subjects then concat matrices
 # mdtb_pca_comps, mdtb_loadings, mdtb_explained_var = run_pca(np.mean(mdtb_beta_matrix, axis=2), MDTB_DIR_TREE, 'mdtb_pca_groupave', TASK_LIST, masker=mdtb_masker)
@@ -570,23 +574,58 @@ fig.set_size_inches([6,4])
 fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/pcvarexp.png")
 
-### TODO concat matrices across subject to do one PCA.
+### ave matrices across subject to do one PCA, and do the 3D LD plot
+ave_comps, ave_w, ave_var = run_pca(mdtb_beta_matrix.mean(axis=2), MDTB_DIR_TREE, 'mdtb_ave_subj', MDTB_TASKS, masker=mdtb_masker)
+PC1 = mdtb_masker.inverse_transform(ave_comps[:,0]) #average across subjects
+PC2 = mdtb_masker.inverse_transform(ave_comps[:,1]) 
+PC3 = mdtb_masker.inverse_transform(ave_comps[:,2]) 
+plot_tha(PC1, -3, 3, "seismic", "images/PC1.png")
+plot_tha(PC2, -3, 3, "seismic", "images/PC2.png")
+plot_tha(PC3, -3, 3, "seismic", "images/PC3.png")
+
+# plot low dimensional space for each task (weight matrix)
+from sklearn.cluster import KMeans
+from mpl_toolkits.mplot3d import Axes3D
+n=3
+k = KMeans(n_clusters=n)
+k.fit(ave_w[:,0:3])
+print(k.labels_)
+print(k.inertia_)
+for i in np.arange(n):
+    print(np.array(MDTB_TASKS)[k.labels_==i])
+
+cms = ["#a6cee3",
+"#1f78b4",
+"#b2df8a",
+"#33a02c",
+"#fb9a99"]
+
+cmaps = []
+for i in np.arange(len(k.labels_)):
+    cmaps.append(cms[k.labels_[i]])
+
+fig = plt.figure()
+ax = fig.add_subplot(111, projection = '3d')
+ax.set_xlabel("PC1")
+ax.set_ylabel("PC2")
+ax.set_zlabel("PC3")
+ax.scatter(ave_w[:,0], ave_w[:,1], ave_w[:,2], c=cmaps)
+plt.show()
+
+
 
 #### check "compression" in other ROIs.
-vars = np.zeros((400,21))
-cortical_mask = nib.load(masks.SCHAEFER_400_7N_PATH)
-for roi_idx in np.arange(len(np.unique(cortical_mask.get_fdata()))):
-    roi_idx = roi_idx+1
-    roi_mask = make_roi_mask(cortical_mask,roi_idx)
-    roi_masker = input_data.NiftiMasker(roi_mask)
-    betamats = glm.load_brik(mdtb_subjects, roi_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-    for s in np.arange(betamats.shape[2]):
-        _,_,var = run_pca(betamats[:,:,s], MDTB_DIR_TREE, 'corticalroi', MDTB_TASKS, masker=roi_masker)
-        plt.close('all')
-        vars[roi_idx-1, s] = np.sum(var[0:3])
-
-### Maybe, do group level PCA by concatenate across subjects
-
+# vars = np.zeros((400,21))
+# cortical_mask = nib.load(masks.SCHAEFER_400_7N_PATH)
+# for roi_idx in np.arange(len(np.unique(cortical_mask.get_fdata()))):
+#     roi_idx = roi_idx+1
+#     roi_mask = make_roi_mask(cortical_mask,roi_idx)
+#     roi_masker = input_data.NiftiMasker(roi_mask)
+#     betamats = glm.load_brik(mdtb_subjects, roi_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+#     for s in np.arange(betamats.shape[2]):
+#         _,_,var = run_pca(betamats[:,:,s], MDTB_DIR_TREE, 'corticalroi', MDTB_TASKS, masker=roi_masker)
+#         plt.close('all')
+#         vars[roi_idx-1, s] = np.sum(var[0:3])
 
 
 ################################################
