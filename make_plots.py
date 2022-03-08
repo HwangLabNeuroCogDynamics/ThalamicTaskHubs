@@ -575,13 +575,49 @@ fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/pcvarexp.png")
 
 ### ave matrices across subject to do one PCA, and do the 3D LD plot
+#tomoya dset
+ave_comps, ave_w, ave_var = run_pca(tomoya_beta_matrix.mean(axis=2), tomoya_dir_tree, 'nn_ave_subj', TOMOYA_TASKS, masker=tomoya_masker)
+nnPC1 = mdtb_masker.inverse_transform(ave_comps[:,0]) #average across subjects
+nnPC2 = mdtb_masker.inverse_transform(ave_comps[:,1]) 
+nnPC3 = mdtb_masker.inverse_transform(ave_comps[:,2])
+nnPC1.to_filename("images/tomoyaPC1.nii.gz") 
+nnPC2.to_filename("images/tomoyaPC2.nii.gz") 
+nnPC3.to_filename("images/tomoyaPC3.nii.gz") 
+plot_tha(nnPC1, -3, 3, "seismic", "images/tomoyaPC1.png")
+plot_tha(nnPC2, -3, 3, "seismic", "images/tomoyaPC2.png")
+plot_tha(nnPC3, -3, 3, "seismic", "images/tomoyaPC3.png")
+
+## plot PC for each nuclei
+morel_list = ['AN','VM','VL','MGN','MD','PuA','LP','IL','VA','Po','LGN','PuM','PuI','PuL','VP']
+morel_masker = input_data.NiftiLabelsMasker(masks.MOREL_PATH)
+pca_df = pd.DataFrame()
+pca_df['PC1'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoyaPC1.nii.gz"))[0]
+pca_df['PC2'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoyaPC2.nii.gz"))[0]
+pca_df['PC3'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoyaPC3.nii.gz"))[0]
+pca_df['Nucleus'] = morel_list
+pca_df = pd.melt(pca_df, id_vars=['Nucleus'], value_vars=['PC1', 'PC2', 'PC3'], value_name='Weight', var_name="Component")
+plt.figure()
+sns.barplot(data = pca_df, x="Nucleus", y="Weight", hue="Component", order = ['AN','VM','MD','IL','VA','LGN','MGN','LP','VL','VP','Po', 'PuM','PuI','PuL','PuA' ])
+fig = plt.gcf()
+fig.set_size_inches([8,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/tomoyaPCMorel.png")
+
+
+
 ave_comps, ave_w, ave_var = run_pca(mdtb_beta_matrix.mean(axis=2), MDTB_DIR_TREE, 'mdtb_ave_subj', MDTB_TASKS, masker=mdtb_masker)
-PC1 = mdtb_masker.inverse_transform(ave_comps[:,0]) #average across subjects
-PC2 = mdtb_masker.inverse_transform(ave_comps[:,1]) 
-PC3 = mdtb_masker.inverse_transform(ave_comps[:,2]) 
-plot_tha(PC1, -3, 3, "seismic", "images/PC1.png")
-plot_tha(PC2, -3, 3, "seismic", "images/PC2.png")
-plot_tha(PC3, -3, 3, "seismic", "images/PC3.png")
+thPC1 = mdtb_masker.inverse_transform(ave_comps[:,0]) #average across subjects
+thPC2 = mdtb_masker.inverse_transform(ave_comps[:,1]) 
+thPC3 = mdtb_masker.inverse_transform(ave_comps[:,2])
+thPC1.to_filename("images/PC1.nii.gz") 
+thPC2.to_filename("images/PC2.nii.gz") 
+thPC3.to_filename("images/PC3.nii.gz") 
+plot_tha(thPC1, -3, 3, "seismic", "images/PC1.png")
+plot_tha(thPC2, -3, 3, "seismic", "images/PC2.png")
+plot_tha(thPC3, -3, 3, "seismic", "images/PC3.png")
+
+PC1c = nib.load("images/pc1calb.nii.gz")
+plot_tha(PC1c, -3, 3, "seismic", "images/PC1.png")
 
 # plot low dimensional space for each task (weight matrix)
 from sklearn.cluster import KMeans
@@ -609,10 +645,152 @@ ax = fig.add_subplot(111, projection = '3d')
 ax.set_xlabel("PC1")
 ax.set_ylabel("PC2")
 ax.set_zlabel("PC3")
-ax.scatter(ave_w[:,0], ave_w[:,1], ave_w[:,2], c=cmaps)
+ax.scatter(ave_w[:,0], ave_w[:,1], ave_w[:,2], c=sns.color_palette(n_colors=25))
 plt.show()
 
+## can PC laodings separate tasks?
+task_df = pd.DataFrame()
+task_df['Task'] = MDTB_TASKS
+task_df['PC1'] = ave_w[:,0]
+task_df['PC2'] = ave_w[:,1]
+task_df['PC3'] = ave_w[:,2]
+task_df['PC4'] = ave_w[:,3]
+task_df['PC5'] = ave_w[:,4]
 
+plt.figure()
+g=sns.barplot(data = task_df, x='PC1', y='Task', order = np.array(MDTB_TASKS)[np.argsort(ave_w[:,0])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/PC1.png")
+
+plt.figure()
+g=sns.barplot(data = task_df, x='PC2', y='Task', order = np.array(MDTB_TASKS)[np.argsort(ave_w[:,1])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/PC2.png")
+
+plt.figure()
+g=sns.barplot(data = task_df, x='PC3', y='Task', order = np.array(MDTB_TASKS)[np.argsort(ave_w[:,2])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/PC3.png")
+
+## plot PC for each nuclei
+morel_list = ['AN','VM','VL','MGN','MD','PuA','LP','IL','VA','Po','LGN','PuM','PuI','PuL','VP']
+morel_masker = input_data.NiftiLabelsMasker(masks.MOREL_PATH)
+pca_df = pd.DataFrame()
+pca_df['PC1'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/PC1.nii.gz"))[0]
+pca_df['PC2'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/PC2.nii.gz"))[0]
+pca_df['PC3'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/PC3.nii.gz"))[0]
+pca_df['Nucleus'] = morel_list
+pca_df = pd.melt(pca_df, id_vars=['Nucleus'], value_vars=['PC1', 'PC2', 'PC3'], value_name='Weight', var_name="Component")
+plt.figure()
+sns.barplot(data = pca_df, x="Nucleus", y="Weight", hue="variable", order = ['AN','VM','MD','IL','VA','LGN','MGN','LP','VL','VP','Po', 'PuM','PuI','PuL','PuA' ])
+fig = plt.gcf()
+fig.set_size_inches([8,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/PCMorel.png")
+
+## what is the LD structure like for cortical evoked activity?
+Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
+Schaefer400 = image.math_img("img>0", img=Schaefer400)
+Schaefer400_voxelwise_masker = input_data.NiftiMasker(Schaefer400)
+Schaefer400_voxelwise_masker.fit(masks.SCHAEFER_400_7N_PATH)
+print(masks.masker_count(Schaefer400_voxelwise_masker))
+
+def run_mdtb_cortical_beta_matrix(Schaefer400_voxelwise_masker):
+    cortical_masker = Schaefer400_voxelwise_masker.fit(nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"))
+    #pull betas
+    mdtb_cortical_voxelwise_matrix = glm.load_brik(mdtb_subjects, cortical_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+    mdtb_cortical_voxelwise_matrix[mdtb_cortical_voxelwise_matrix>3] = 0
+    mdtb_cortical_voxelwise_matrix[mdtb_cortical_voxelwise_matrix<-3] = 0
+    np.save('data/mdtb_cortical_voxelwise_matrx', mdtb_cortical_voxelwise_matrix)
+
+#run_mdtb_cortical_beta_matrix(Schaefer400_voxelwise_masker)
+cortical_betas = np.load('data/mdtb_cortical_voxelwise_matrx.npy')
+mdtb_explained_var = pd.DataFrame()
+mdtb_pca_WxV = np.zeros([masks.masker_count(mdtb_masker), 21])
+mdtb_pca_cortical_WxV = np.zeros((masks.masker_count(Schaefer400_voxelwise_masker), 21))
+for s in np.arange(mdtb_beta_matrix.shape[2]):
+    mat = mdtb_beta_matrix[:,:,s]
+    fn = 'mdtb_pca_sub' + str(s)
+    comps, w, var = run_pca(mat, MDTB_DIR_TREE, fn, MDTB_TASKS, masker=mdtb_masker)
+    tdf = pd.DataFrame()
+    tdf['Component'] = np.arange(1,10)
+    tdf['Dataset'] = 'MDTB'
+    tdf['Sub'] = s
+    tdf['Varaince Explained'] = var[0:9] #varianced explained for the first 10 PC
+    tdf['Sum of Variance Explained'] = tdf['Varaince Explained'].cumsum()
+    tdf['ROI'] = "Thalamus"
+    mdtb_explained_var = mdtb_explained_var.append(tdf)
+    fn = 'mdtb_cortical_sub' + str(s)
+    cortical_comps, cortical_w, cortical_var = run_pca(cortical_betas[:,:,s], MDTB_DIR_TREE, fn, MDTB_TASKS)
+    tdf = pd.DataFrame()
+    tdf['Component'] = np.arange(1,10)
+    tdf['Dataset'] = 'MDTB'
+    tdf['Sub'] = s
+    tdf['Varaince Explained'] = cortical_var[0:9] #varianced explained for the first 10 PC
+    tdf['Sum of Variance Explained'] = tdf['Varaince Explained'].cumsum()
+    tdf['ROI'] = "Cortex"
+    mdtb_explained_var = mdtb_explained_var.append(tdf)
+    for i in np.arange(9):
+        mdtb_pca_WxV[:,s] = mdtb_pca_WxV[:,s] + abs(comps[:,i])*var[i] #each subjects PCAweight * variance explained
+        mdtb_pca_cortical_WxV[:,s]  = mdtb_pca_cortical_WxV[:,s] + abs(cortical_comps[:,i])*cortical_var[i]
+
+mdtb_explained_var['Component'] = mdtb_explained_var['Component'].astype('str')
+g = sns.barplot(data=mdtb_explained_var, x="Component", y="Varaince Explained", hue='ROI')
+g2 = g.twinx()
+g2 = sns.lineplot(data=mdtb_explained_var, x="Component", y="Sum of Variance Explained", hue='ROI', legend = False)
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/cortex_pcvarexp.png")
+
+
+#### average cortical betas then PCA
+cortical_comps, cortical_w, cortical_var = run_pca(cortical_betas.mean(axis=2), MDTB_DIR_TREE, 'mdtb_cortical_ave_subj', MDTB_TASKS)
+task_df = pd.DataFrame()
+task_df['Task'] = MDTB_TASKS
+task_df['PC1'] = cortical_w[:,0]
+task_df['PC2'] = cortical_w[:,1]
+task_df['PC3'] = cortical_w[:,2]
+task_df['PC4'] = cortical_w[:,3]
+task_df['PC5'] = cortical_w[:,4]
+
+PC1 = Schaefer400_voxelwise_masker.inverse_transform(cortical_comps[:,0])
+nilearn.plotting.plot_stat_map(PC1)
+PC2 = Schaefer400_voxelwise_masker.inverse_transform(cortical_comps[:,1])
+nilearn.plotting.plot_stat_map(PC2)
+PC3 = Schaefer400_voxelwise_masker.inverse_transform(cortical_comps[:,2])
+nilearn.plotting.plot_stat_map(PC3)
+
+plt.figure()
+g=sns.barplot(data = task_df, x='PC1', y='Task', order = np.array(MDTB_TASKS)[np.argsort(cortical_w[:,0])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/CortexPC1.png")
+plt.figure()
+g=sns.barplot(data = task_df, x='PC2', y='Task', order = np.array(MDTB_TASKS)[np.argsort(cortical_w[:,1])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/CortexPC2.png")
+plt.figure()
+g=sns.barplot(data = task_df, x='PC3', y='Task', order = np.array(MDTB_TASKS)[np.argsort(cortical_w[:,2])], hue = 'Task', dodge=False)
+g.get_legend().remove()
+fig = plt.gcf()
+fig.set_size_inches([6,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/CortexPC3.png")
 
 #### check "compression" in other ROIs.
 # vars = np.zeros((400,21))
@@ -969,6 +1147,7 @@ whole_brain_af_corr_100 = np.load('data/whole_brain_af_corr_100.mdtb.npy') #101 
 whole_brain_af_corr = np.load('data/whole_brain_af_corr_CerebrA.mdtb.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
 
 af_df = pd.DataFrame()
+af_results = read_object('data/af_results')
 mdtb_activity_flow = af_results['mdtb_activity_flow']
 i=0
 for t, task in enumerate(MDTB_TASKS):
@@ -1381,6 +1560,13 @@ new_cii.to_filename('data/rsa.100.tomoya.dscalar.nii')
 #######################################################
 ##### Simulate lesion effect on activity flow and RSA, Figure 5
 ############################################################
+af_results = read_object('data/af_results')
+mdtb_activity_flow = af_results['mdtb_activity_flow']
+tomoya_activity_flow = af_results['tomoya_activity_flow']
+mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
+tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
+mdtb_cortical_betas = np.load('data/mdtb_cortical_betas.npy')
+tomoya_cortical_betas = np.load('data/tomoya_cortical_betas.npy')
 
 mdtb_taskPC = mdtb_pca_WxV.T #np.mean(mdtb_hc_pc, axis=(1,3))
 tomoya_taskPC = tomoya_pca_WxV.T #np.mean(tomoya_hc_pc, axis=(1,3))   
@@ -1458,7 +1644,7 @@ fig.tight_layout()
 plt.savefig("images/rsa_lesion.png", bbox_inches='tight')
 
 
-#now map % reduction in evoked pattern similarity and RDM in volumne space
+## now map % reduction in evoked pattern similarity and RDM in volumne space
 mPC = mdtb_taskPC.mean(axis=0) #(shape sub by th vox)
 dpc = np.zeros(2445)
 F = (mdtb_activity_flow_thresh.mean(axis=(1,2))-.3698) / .3698 * 100
@@ -1466,7 +1652,9 @@ for thres in np.arange(1,81):
     minv = np.percentile(mPC,thres)
     maxv = np.percentile(mPC,thres+20)
     dpc[((mPC <= maxv) & (mPC >= minv))] = F[thres*-1]
+mdtb_dpc = dpc
 mdtb_dpc_img = mdtb_masker.inverse_transform(dpc)
+mdtb_dpc_img.to_filename("images/mdtb_dpc_img.nii.gz")
 plot_tha(mdtb_dpc_img, -20, 0, "Blues_r", "images/dpc.png")
 
 tPC = tomoya_taskPC.mean(axis=0) #(shape sub by th vox)
@@ -1476,7 +1664,9 @@ for thres in np.arange(1,81):
     minv = np.percentile(tPC,thres)
     maxv = np.percentile(tPC,thres+20)
     dpc[((tPC <= maxv) & (tPC >= minv))] = F[thres*-1]
+tomoya_dp = dpc
 tomoya_dpc_img = mdtb_masker.inverse_transform(dpc)
+tomoya_dpc_img.to_filename("images/tomoya_dpc_img.nii.gz")
 plot_tha(tomoya_dpc_img, -10, 0, "Blues_r", "images/tomoya_dpc.png")
 
 #rsa
@@ -1487,6 +1677,8 @@ for thres in np.arange(1,81):
     maxv = np.percentile(mPC,thres+20)
     dpc[((mPC <= maxv) & (mPC >= minv))] = F[thres*-1]
 mdtb_drsa_img = mdtb_masker.inverse_transform(dpc)
+mdtb_drsa = dpc
+mdtb_drsa_img.to_filename("images/mdtb_drsa_img.nii.gz")
 plot_tha(mdtb_drsa_img, -40, 0, "Blues_r", "images/drsa.png")
 
 dpc = np.zeros(2445)
@@ -1496,8 +1688,34 @@ for thres in np.arange(1,81):
     maxv = np.percentile(tPC,thres+20)
     dpc[((tPC <= maxv) & (tPC >= minv))] = F[thres*-1]
 tomoya_drsa_img = mdtb_masker.inverse_transform(dpc)
+tomoya_drsa = dpc
+tomoya_drsa_img.to_filename("images/tomoya_drsa_img.nii.gz")
 plot_tha(tomoya_drsa_img, -30, 0, "Blues_r", "images/tomoya_drsa.png")
-del dpc
+
+## project simulated lesion effects onto cortex via af
+def make_cii(data, fn, template_cii = 'data/Schaefer2018_400Parcels_7Networks_order.dscalar.nii'):
+    template_cii = nib.load('data/Schaefer2018_400Parcels_7Networks_order.dscalar.nii')
+    tmp_data = template_cii.get_fdata() #do operations here
+    new_data = np.zeros(tmp_data.shape)
+    for idx in np.arange(400):
+        new_data[tmp_data==int(idx+1)] = data[idx]
+
+    new_cii = nib.cifti2.Cifti2Image(new_data, template_cii.header)
+    new_cii.to_filename('data/%s' %fn)
+
+cortex_dpc = np.dot(mdtb_dpc, mdtb_fc.data.mean(axis=2))
+make_cii(cortex_dpc, "cortex_dpc.dscalar.nii")
+
+# project PCs onto surface
+cortex_pc1projection = np.dot(ave_comps[:,0], mdtb_fc.data.mean(axis=2))
+make_cii(cortex_pc1projection, "cortex_pc1projection.dscalar.nii")
+cortex_pc2projection = np.dot(ave_comps[:,1], mdtb_fc.data.mean(axis=2))
+make_cii(cortex_pc2projection, "cortex_pc2projection.dscalar.nii")
+cortex_pc3projection = np.dot(ave_comps[:,2], mdtb_fc.data.mean(axis=2))
+make_cii(cortex_pc3projection, "cortex_pc3projection.dscalar.nii")
+
+#make_cii(p[0], "pc1.dscalar.nii")
+
 
 #######################################################
 ##### Compare simulated effects to real lesions, Figure 6
