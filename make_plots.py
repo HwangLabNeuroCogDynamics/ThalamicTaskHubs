@@ -538,7 +538,6 @@ def run_mdtb_beta_matrix(mni_thalamus_masker):
 #run_mdtb_beta_matrix(mni_thalamus_masker)
 mdtb_beta_matrix = np.load('data/mdtb_beta_matrx.npy')
 
-# # average then PCA. bad idea, if want to do this across subjects then concat matrices
 # mdtb_pca_comps, mdtb_loadings, mdtb_explained_var = run_pca(np.mean(mdtb_beta_matrix, axis=2), MDTB_DIR_TREE, 'mdtb_pca_groupave', TASK_LIST, masker=mdtb_masker)
 # plt.close('all')
 
@@ -676,7 +675,7 @@ make_cii(cortex_pc3projection, "cortex_nnpc3projection.dscalar.nii")
 Schaeffer_CI = np.loadtxt('/home/kahwang/bin/LesionNetwork/Schaeffer400_7network_CI')
 ci_df = pd.DataFrame()
 i=0
-networks = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
+networks = ['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']
 for n in np.arange(7):
     ci_df.loc[i, 'Network'] = networks[n]
     ci_df.loc[i, 'MDTB component 1'] = np.mean(np.dot(ave_comps[:,0], mdtb_fc.data.mean(axis=2))[Schaeffer_CI==n+1])
@@ -687,7 +686,7 @@ for n in np.arange(7):
     ci_df.loc[i, 'N&N component 3'] = np.mean(np.dot(nnave_comps[:,2], mdtb_fc.data.mean(axis=2))[Schaeffer_CI==n+1])
     i=i+1
 
-ci_df = pd.melt(ci_df, id_vars=['Network'], value_vars=['MDTB component 1', 'MDTB component 2', 'MDTB component 3', 'N&N component 1', 'N&N component 2', 'N&N component 3'], value_name='Projected Weight', var_name="Component")
+ci_df = pd.melt(ci_df, id_vars=['Network'], value_vars=['N&N component 1', 'N&N component 2', 'N&N component 3', 'MDTB component 1', 'MDTB component 2', 'MDTB component 3'], value_name='Projected Weight', var_name="Component")
 g =sns.barplot(data = ci_df, x="Network", y='Projected Weight', hue="Component", palette='Set2')
 fig = plt.gcf()
 g.get_legend().remove()
@@ -696,7 +695,7 @@ fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/preojectedPC.png")
 
 ################################################
-######## Task hubs versus rsfc hubs, Figure 3
+######## Task hubs versus rsfc hubs, Figure 4
 ################################################
 
 ######## plot weight x var
@@ -708,152 +707,6 @@ plot_tha(mdtb_pca_weight, lb, ub+0.1, "autumn", "images/mdtb_pca_weight.png") #c
 lb = np.percentile(np.mean(tomoya_pca_WxV, axis=1),20)
 ub = np.percentile(np.mean(tomoya_pca_WxV, axis=1),80)
 plot_tha(tomoya_pca_weight, lb, ub+0.05, "autumn", "images/tomoya_pca_weight.png")
-
-
-######## load cortical betas for hierarchical clustering for MDTB
-mni_thalamus_masker = masks.binary_masker("/home/kahwang/bsh/ROIs/mni_atlas/MNI_thalamus_2mm.nii.gz")
-Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
-Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-mdtb_cortical_betas = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-np.save('data/mdtb_cortical_betas', mdtb_cortical_betas)
-cortical_betas = np.load('data/mdtb_cortical_betas.npy') #z-scored already
-cortical_betas_2d = np.empty([400*21, 25]) #concat across subjects
-for i in np.arange(21):
-    for j in np.arange(400):
-        for k in np.arange(25):
-            cortical_betas_2d[i*400+j, k] = cortical_betas[j,k,i]
-
-#dend = shc.dendrogram(shc.linkage(cortical_betas_2d.T, method='ward'), labels=TASK_LIST) # need to work on this plot..
-#### calculate task PC across different clusinger level and density thresholds
-thresholds = np.arange(85,99).tolist()
-cluster_num = 8
-mdtb_hc_pc = np.empty([21,6, masks.masker_count(mdtb_masker), len(thresholds)]) #sub by clustsize by vox by threshold
-for s in np.arange(21):
-
-    for ic, c in enumerate(np.arange(3,cluster_num+1)):
-        
-        conditions_cluster = hier_cluster(cortical_betas_2d, n_clusters=c)
-
-        for k in np.arange(len(np.unique(conditions_cluster.labels_))):
-            group = [condition for i, condition in enumerate(MDTB_TASKS) if k == conditions_cluster.labels_[i]]
-            #print(f'k: {k}  group: {group}')
-
-        pc_matrix = pc.pc_subject(abs(mdtb_beta_matrix)[:,:,s], conditions_cluster.labels_, thresholds=thresholds)
-        pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
-        pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
-        mdtb_hc_pc[s,ic,:,:] = pc_matrix
-
-mdtb_hc_pc_img = mdtb_masker.inverse_transform(np.mean(mdtb_hc_pc, axis=(0,1,3)))
-
-### now calculate PC using a priori clustering
-# 1: ObjectViewing         
-# 2: WordPrediction
-# 3: Math
-# 4: Motor
-# 1: MentalRotation
-# 4: MotorImagery
-# 1: LandscapeMovie
-# 5: IAPSemotion
-# 4: Go/NoGo
-# 1: NatureMovie
-# 4: ResponseAlternativesMotor
-# 1: ActionObservation
-# 1: SpatialMap
-# 1: BiologicalMotion
-# 6: Rules
-# 6: Stroop
-# 6: Verbal2Back
-# 6: Interval
-# 1: AnimatedMovie
-# 5: IAPSaffective
-# 6: ObjectNBackTask
-# 2: Language
-# 2: TheoryOfMind
-# 1: VisualSearch
-# 1: SpatialImagery
-
-CI = np.array([1,2,3,4,1,4,1,5,4,1,4,1,1,1,6,6,6,6,1,5,6,2,2,1,1])
-thresholds = np.arange(85,99).tolist()
-mdtb_a_pc = np.empty([21,masks.masker_count(mdtb_masker), len(thresholds)]) #sub by clustsize by vox by threshold
-for s in np.arange(21):
-    pc_matrix = pc.pc_subject(abs(mdtb_beta_matrix)[:,:,s], CI, thresholds=thresholds)
-    pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
-    pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
-    mdtb_a_pc[s,:,:] = pc_matrix
-
-mdtb_a_pc_img = mdtb_masker.inverse_transform(np.mean(mdtb_a_pc, axis=(0,2)))
-
-######## load cortical betas for hierarchical clustering for Tomoya N&N
-Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
-Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-tomoya_cortical_betas = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
-np.save('data/tomoya_cortical_betas', tomoya_cortical_betas)
-tomoya_cortical_betas = np.load('data/tomoya_cortical_betas.npy')
-tomoya_cortical_betas_2d = np.empty([400*6, 102]) #concat across subjects
-for i in np.arange(6):
-    for j in np.arange(400):
-        for k in np.arange(102):
-            tomoya_cortical_betas_2d[i*400+j, k] = tomoya_cortical_betas[j,k,i]
-
-thresholds = np.arange(85,99).tolist()
-cluster_num = 8
-tomoya_hc_pc = np.empty([6,6, masks.masker_count(tomoya_masker), len(thresholds)]) #sub by clustsize by vox by threshold
-for s in np.arange(6):
-    for ic, c in enumerate(np.arange(3,cluster_num+1)):
-        conditions_cluster = hier_cluster(tomoya_cortical_betas_2d, n_clusters=c)
-        for k in np.arange(len(np.unique(conditions_cluster.labels_))):
-            group = [condition for i, condition in enumerate(TOMOYA_TASKS) if k == conditions_cluster.labels_[i]]
-            #print(f'k: {k}  group: {group}')
-
-        pc_matrix = pc.pc_subject(abs(tomoya_beta_matrix)[:,:,s], conditions_cluster.labels_, thresholds=thresholds)
-        pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
-        pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
-        tomoya_hc_pc[s,ic,:,:] = pc_matrix
-
-tomoya_hc_pc_img = tomoya_masker.inverse_transform(np.mean(tomoya_hc_pc, axis=(0,1,3)))
-
-# a priori clusters from N&N 2020, this is how they classified it. not me. 
-auditory = ["TimeMov","Rhythm","Harmony","TimeSound","CountTone","SoundRight","SoundLeft","RateDisgustSound","RateNoisy","RateBeautySound","SoundPlace","DailySound","EmotionVoice","MusicCategory","ForeignListen","LanguageSound","AnimalVoice", "FeedbackPos"]
-introspection = ["LetterFluency","CategoryFluency","RecallKnowledge","ImagineMove","ImagineIf","RecallFace","ImaginePlace","RecallPast","ImagineFuture"]
-motor = ["RateConfidence","RateSleepy","RateTired","EyeMoveHard","EyeMoveEasy","EyeBlink","RestClose","RestOpen","PressOrdHard","PressOrdEasy","PressLR","PressLeft","PressRight"]
-memory = ["MemoryNameHard","MemoryNameEasy","MatchNameHard","MatchNameEasy","RelationLogic","CountDot","MatchLetter","MemoryLetter","MatchDigit","MemoryDigit","CalcHard","CalcEasy"]
-language = ["RecallTaskHard","RecallTaskEasy","DetectColor","Recipe","TimeValue","DecidePresent","ForeignReadQ","ForeignRead","MoralImpersonal","MoralPersonal","Sarcasm","Metaphor","ForeignListenQ","WordMeaning","RatePoem", "PropLogic"]
-visual = ["EmotionFace","Flag","DomesiticName","WorldName","DomesiticPlace","WorldPlace","StateMap","MapIcon","TrafficSign","MirrorImage","DailyPhoto","AnimalPhoto","RateBeautyPic","DecidePeople","ComparePeople","RateHappyPic","RateSexyPicM","DecideFood","RateDeliciousPic","RatePainfulPic","RateDisgustPic","RateSexyPicF","DecideShopping","DetectDifference","DetectTargetPic","CountryMap","Money","Clock","RateBeautyMov","DetectTargetMov","RateHappyMov","RateSexyMovF","RateSexyMovM","RateDeliciousMov","RatePainfulMov","RateDisgustMov"]
-groups = [visual, language, memory, motor, introspection, auditory]
-
-task_category = []
-for task in TOMOYA_TASKS:
-    for i, group in enumerate(groups):
-        if task in group:
-            task_category.append(i)
-            continue
-
-tomoya_a_pc = np.empty([6, masks.masker_count(tomoya_masker), len(thresholds)]) #sub by clustsize by vox by threshold
-for s in np.arange(6):
-    pc_matrix = pc.pc_subject(abs(tomoya_beta_matrix)[:,:,s], task_category, thresholds=thresholds)
-    pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
-    pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
-    tomoya_a_pc[s,:,:] = pc_matrix
-tomoya_a_pc_img = tomoya_masker.inverse_transform(np.mean(tomoya_a_pc, axis=(0,2)))
-
-# plot task PC
-# plotting.plot_thal(mdtb_hc_pc_img)
-# plotting.plot_thal(tomoya_hc_pc_img )
-# plotting.plot_thal(mdtb_a_pc_img )
-# plotting.plot_thal(tomoya_a_pc_img )
-
-lb = np.percentile(np.mean(mdtb_hc_pc, axis=(0,2)),20)
-hb = np.percentile(np.mean(mdtb_hc_pc, axis=(0,2)),80)
-plot_tha(mdtb_hc_pc_img, lb, hb, "plasma", "images/mdtb_hc_pc_img.png")
-lb = np.percentile(np.mean(tomoya_hc_pc, axis=(0,2)),20)
-hb = np.percentile(np.mean(tomoya_hc_pc, axis=(0,2)),80)
-plot_tha(tomoya_hc_pc_img, lb, hb, "plasma", "images/tomoya_hc_pc_img.png")
-lb = np.percentile(np.mean(mdtb_a_pc, axis=(0,2)),20)
-hb = np.percentile(np.mean(mdtb_a_pc, axis=(0,2)),80)
-plot_tha(mdtb_a_pc_img, lb, hb, "plasma", "images/mdtb_a_pc_img.png")
-lb = np.percentile(np.mean(tomoya_a_pc, axis=(0,2)),20)
-hb = np.percentile(np.mean(tomoya_a_pc, axis=(0,2)),80)
-plot_tha(tomoya_a_pc_img, lb, hb, "plasma", "images/tomoya_a_pc_img.png")
 
 
 ##### Compare to FC PC (rsFC and backgroundFC)
@@ -878,6 +731,7 @@ for s in np.arange(21):
     mdtb_fcpc[s, :] = cal_fcpc(mdtb_fc_mat[s,:,:])
 
 mdtb_fcpc_img = mdtb_masker.inverse_transform(np.nanmean(mdtb_fcpc, axis=0))
+mdtb_fcpc_img.to_filename("images/mdtb_fcpc.nii.gz")
 
 ## tomoya fcpc
 tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
@@ -888,19 +742,48 @@ for s in np.arange(6):
     tomoya_fcpc[s, :] = cal_fcpc(tomoya_fc_mat[s,:,:])
 
 tomoya_fcpc_img = tomoya_masker.inverse_transform(np.nanmean(tomoya_fcpc, axis=0))
+tomoya_fcpc_img.to_filename("images/tomoya_fcpc.nii.gz")
 
 #plotting.plot_thal(mdtb_fcpc_img)
 #plotting.plot_thal(tomoya_fcpc_img)
 lb = np.percentile(np.nanmean(mdtb_fcpc, axis=0), 20)
 hb = np.percentile(np.nanmean(mdtb_fcpc, axis=0), 80)
-plot_tha(mdtb_fcpc_img, lb, hb+0.03, "plasma", "images/mdtb_fcpc_img.png")
+plot_tha(mdtb_fcpc_img, lb, hb+0.03, "autumn", "/home/kahwang/RDSS/tmp/mdtb_fcpc_img.png")
 lb = np.percentile(np.nanmean(tomoya_fcpc, axis=0), 20)
 hb = np.percentile(np.nanmean(tomoya_fcpc, axis=0), 80)
-plot_tha(tomoya_fcpc_img, lb, hb, "plasma", "images/tomoya_fcpc_img.png")
+plot_tha(tomoya_fcpc_img, lb, hb, "autumn", "/home/kahwang/RDSS/tmp/tomoya_fcpc_img.png")
+
+
+### plot task PC by nuclei
+morel_list = ['AN','VM','VL','MGN','MD','PuA','LP','IL','VA','Po','LGN','PuM','PuI','PuL','VP']
+morel_masker = input_data.NiftiLabelsMasker(masks.MOREL_PATH)
+mdtbtaskPC_df = pd.DataFrame()
+mdtbtaskPC_df['MDTB WxV'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/mdtb_pca_weight.nii.gz"))[0]/0.8464
+mdtbtaskPC_df['N&N WxV'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoya_pca_weight.nii.gz"))[0]/1.4161
+mdtbtaskPC_df['MDTB fcPC'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/mdtb_fcpc.nii.gz"))[0]
+mdtbtaskPC_df['N&N fcPC'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoya_fcpc.nii.gz"))[0]
+mdtbtaskPC_df['Nucleus'] = morel_list
+mdtbtaskPC_df = pd.melt(mdtbtaskPC_df, id_vars=['Nucleus'], value_vars=['MDTB WxV', 'N&N WxV', 'MDTB fcPC', 'N&N fcPC'], value_name='value', var_name="Hub Metric")
+plt.figure()
+g =sns.barplot(data = mdtbtaskPC_df, x="Nucleus", y='value', hue="Hub Metric", order = ['AN','VM','MD','IL','VA','VL','VP', 'PuM','PuI','PuL','PuA' ],palette='Set2')
+fig = plt.gcf()
+g.get_legend().remove()
+fig.set_size_inches([8,4])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/hubMorel.png")
+
+np.corrcoef(np.nanmean(mdtb_fcpc,axis=0), np.mean(mdtb_pca_WxV, axis=1))
+np.corrcoef(np.nanmean(tomoya_fcpc,axis=0), np.mean(tomoya_pca_WxV, axis=1))
+
+### project task PC onto cortex
+cortex_pc1projection = zscore(np.dot(np.mean(mdtb_pca_WxV, axis=1), mdtb_fc.data.mean(axis=2)))
+make_cii(cortex_pc1projection, "mdtb_pca_WxV.dscalar.nii")
+cortex_pc1projection = zscore(np.dot(np.mean(tomoya_pca_WxV, axis=1), tomoya_fc.data.mean(axis=2)))
+make_cii(cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
 
 
 ################################################
-######## Activity flow prediction, Figure 3
+######## Activity flow prediction, Figure 5
 ################################################
 # activity flow analysis: predicited cortical evoked responses = thalamus evoke x thalamocortical FC, compare to observed cortical evoked responses
 
@@ -1789,6 +1672,156 @@ fig = plt.gcf()
 fig.set_size_inches([6,4])
 fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/CortexPC3.png")
+
+
+
+################################################
+######## clustering task to do task PC
+################################################
+######## load cortical betas for hierarchical clustering for MDTB
+mni_thalamus_masker = masks.binary_masker("/home/kahwang/bsh/ROIs/mni_atlas/MNI_thalamus_2mm.nii.gz")
+Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
+Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
+mdtb_cortical_betas = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+np.save('data/mdtb_cortical_betas', mdtb_cortical_betas)
+cortical_betas = np.load('data/mdtb_cortical_betas.npy') #z-scored already
+cortical_betas_2d = np.empty([400*21, 25]) #concat across subjects
+for i in np.arange(21):
+    for j in np.arange(400):
+        for k in np.arange(25):
+            cortical_betas_2d[i*400+j, k] = cortical_betas[j,k,i]
+
+#dend = shc.dendrogram(shc.linkage(cortical_betas_2d.T, method='ward'), labels=TASK_LIST) # need to work on this plot..
+#### calculate task PC across different clusinger level and density thresholds
+thresholds = np.arange(85,99).tolist()
+cluster_num = 8
+mdtb_hc_pc = np.empty([21,6, masks.masker_count(mdtb_masker), len(thresholds)]) #sub by clustsize by vox by threshold
+for s in np.arange(21):
+
+    for ic, c in enumerate(np.arange(3,cluster_num+1)):
+        
+        conditions_cluster = hier_cluster(cortical_betas_2d, n_clusters=c)
+
+        for k in np.arange(len(np.unique(conditions_cluster.labels_))):
+            group = [condition for i, condition in enumerate(MDTB_TASKS) if k == conditions_cluster.labels_[i]]
+            #print(f'k: {k}  group: {group}')
+
+        pc_matrix = pc.pc_subject(abs(mdtb_beta_matrix)[:,:,s], conditions_cluster.labels_, thresholds=thresholds)
+        pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
+        pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
+        mdtb_hc_pc[s,ic,:,:] = pc_matrix
+
+mdtb_hc_pc_img = mdtb_masker.inverse_transform(np.mean(mdtb_hc_pc, axis=(0,1,3)))
+
+### now calculate PC using a priori clustering
+# 1: ObjectViewing         
+# 2: WordPrediction
+# 3: Math
+# 4: Motor
+# 1: MentalRotation
+# 4: MotorImagery
+# 1: LandscapeMovie
+# 5: IAPSemotion
+# 4: Go/NoGo
+# 1: NatureMovie
+# 4: ResponseAlternativesMotor
+# 1: ActionObservation
+# 1: SpatialMap
+# 1: BiologicalMotion
+# 6: Rules
+# 6: Stroop
+# 6: Verbal2Back
+# 6: Interval
+# 1: AnimatedMovie
+# 5: IAPSaffective
+# 6: ObjectNBackTask
+# 2: Language
+# 2: TheoryOfMind
+# 1: VisualSearch
+# 1: SpatialImagery
+
+CI = np.array([1,2,3,4,1,4,1,5,4,1,4,1,1,1,6,6,6,6,1,5,6,2,2,1,1])
+thresholds = np.arange(85,99).tolist()
+mdtb_a_pc = np.empty([21,masks.masker_count(mdtb_masker), len(thresholds)]) #sub by clustsize by vox by threshold
+for s in np.arange(21):
+    pc_matrix = pc.pc_subject(abs(mdtb_beta_matrix)[:,:,s], CI, thresholds=thresholds)
+    pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
+    pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
+    mdtb_a_pc[s,:,:] = pc_matrix
+
+mdtb_a_pc_img = mdtb_masker.inverse_transform(np.mean(mdtb_a_pc, axis=(0,2)))
+
+######## load cortical betas for hierarchical clustering for Tomoya N&N
+Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
+Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
+tomoya_cortical_betas = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+np.save('data/tomoya_cortical_betas', tomoya_cortical_betas)
+tomoya_cortical_betas = np.load('data/tomoya_cortical_betas.npy')
+tomoya_cortical_betas_2d = np.empty([400*6, 102]) #concat across subjects
+for i in np.arange(6):
+    for j in np.arange(400):
+        for k in np.arange(102):
+            tomoya_cortical_betas_2d[i*400+j, k] = tomoya_cortical_betas[j,k,i]
+
+thresholds = np.arange(85,99).tolist()
+cluster_num = 8
+tomoya_hc_pc = np.empty([6,6, masks.masker_count(tomoya_masker), len(thresholds)]) #sub by clustsize by vox by threshold
+for s in np.arange(6):
+    for ic, c in enumerate(np.arange(3,cluster_num+1)):
+        conditions_cluster = hier_cluster(tomoya_cortical_betas_2d, n_clusters=c)
+        for k in np.arange(len(np.unique(conditions_cluster.labels_))):
+            group = [condition for i, condition in enumerate(TOMOYA_TASKS) if k == conditions_cluster.labels_[i]]
+            #print(f'k: {k}  group: {group}')
+
+        pc_matrix = pc.pc_subject(abs(tomoya_beta_matrix)[:,:,s], conditions_cluster.labels_, thresholds=thresholds)
+        pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
+        pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
+        tomoya_hc_pc[s,ic,:,:] = pc_matrix
+
+tomoya_hc_pc_img = tomoya_masker.inverse_transform(np.mean(tomoya_hc_pc, axis=(0,1,3)))
+
+# a priori clusters from N&N 2020, this is how they classified it. not me. 
+auditory = ["TimeMov","Rhythm","Harmony","TimeSound","CountTone","SoundRight","SoundLeft","RateDisgustSound","RateNoisy","RateBeautySound","SoundPlace","DailySound","EmotionVoice","MusicCategory","ForeignListen","LanguageSound","AnimalVoice", "FeedbackPos"]
+introspection = ["LetterFluency","CategoryFluency","RecallKnowledge","ImagineMove","ImagineIf","RecallFace","ImaginePlace","RecallPast","ImagineFuture"]
+motor = ["RateConfidence","RateSleepy","RateTired","EyeMoveHard","EyeMoveEasy","EyeBlink","RestClose","RestOpen","PressOrdHard","PressOrdEasy","PressLR","PressLeft","PressRight"]
+memory = ["MemoryNameHard","MemoryNameEasy","MatchNameHard","MatchNameEasy","RelationLogic","CountDot","MatchLetter","MemoryLetter","MatchDigit","MemoryDigit","CalcHard","CalcEasy"]
+language = ["RecallTaskHard","RecallTaskEasy","DetectColor","Recipe","TimeValue","DecidePresent","ForeignReadQ","ForeignRead","MoralImpersonal","MoralPersonal","Sarcasm","Metaphor","ForeignListenQ","WordMeaning","RatePoem", "PropLogic"]
+visual = ["EmotionFace","Flag","DomesiticName","WorldName","DomesiticPlace","WorldPlace","StateMap","MapIcon","TrafficSign","MirrorImage","DailyPhoto","AnimalPhoto","RateBeautyPic","DecidePeople","ComparePeople","RateHappyPic","RateSexyPicM","DecideFood","RateDeliciousPic","RatePainfulPic","RateDisgustPic","RateSexyPicF","DecideShopping","DetectDifference","DetectTargetPic","CountryMap","Money","Clock","RateBeautyMov","DetectTargetMov","RateHappyMov","RateSexyMovF","RateSexyMovM","RateDeliciousMov","RatePainfulMov","RateDisgustMov"]
+groups = [visual, language, memory, motor, introspection, auditory]
+
+task_category = []
+for task in TOMOYA_TASKS:
+    for i, group in enumerate(groups):
+        if task in group:
+            task_category.append(i)
+            continue
+
+tomoya_a_pc = np.empty([6, masks.masker_count(tomoya_masker), len(thresholds)]) #sub by clustsize by vox by threshold
+for s in np.arange(6):
+    pc_matrix = pc.pc_subject(abs(tomoya_beta_matrix)[:,:,s], task_category, thresholds=thresholds)
+    pc_matrix = np.where(np.isnan(pc_matrix), 0.001, pc_matrix)
+    pc_matrix = np.where(pc_matrix <= 0, 0.001, pc_matrix)
+    tomoya_a_pc[s,:,:] = pc_matrix
+tomoya_a_pc_img = tomoya_masker.inverse_transform(np.mean(tomoya_a_pc, axis=(0,2)))
+
+# plot task PC
+# plotting.plot_thal(mdtb_hc_pc_img)
+# plotting.plot_thal(tomoya_hc_pc_img )
+# plotting.plot_thal(mdtb_a_pc_img )
+# plotting.plot_thal(tomoya_a_pc_img )
+
+lb = np.percentile(np.mean(mdtb_hc_pc, axis=(0,2)),20)
+hb = np.percentile(np.mean(mdtb_hc_pc, axis=(0,2)),80)
+plot_tha(mdtb_hc_pc_img, lb, hb, "plasma", "images/mdtb_hc_pc_img.png")
+lb = np.percentile(np.mean(tomoya_hc_pc, axis=(0,2)),20)
+hb = np.percentile(np.mean(tomoya_hc_pc, axis=(0,2)),80)
+plot_tha(tomoya_hc_pc_img, lb, hb, "plasma", "images/tomoya_hc_pc_img.png")
+lb = np.percentile(np.mean(mdtb_a_pc, axis=(0,2)),20)
+hb = np.percentile(np.mean(mdtb_a_pc, axis=(0,2)),80)
+plot_tha(mdtb_a_pc_img, lb, hb, "plasma", "images/mdtb_a_pc_img.png")
+lb = np.percentile(np.mean(tomoya_a_pc, axis=(0,2)),20)
+hb = np.percentile(np.mean(tomoya_a_pc, axis=(0,2)),80)
+plot_tha(tomoya_a_pc_img, lb, hb, "plasma", "images/tomoya_a_pc_img.png")
 
 
 
