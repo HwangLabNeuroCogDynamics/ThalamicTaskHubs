@@ -772,8 +772,15 @@ fig.set_size_inches([8,4])
 fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/hubMorel.png")
 
-np.corrcoef(np.nanmean(mdtb_fcpc,axis=0), np.mean(mdtb_pca_WxV, axis=1))
-np.corrcoef(np.nanmean(tomoya_fcpc,axis=0), np.mean(tomoya_pca_WxV, axis=1))
+r=np.zeros(21)
+mdtb_fcpc[np.isnan(mdtb_fcpc)]=0
+for s in np.arange(21):
+    r[s]= np.corrcoef(mdtb_fcpc[s,:], mdtb_pca_WxV[:,s])[0,1]
+
+r=np.zeros(6)
+tomoya_fcpc[np.isnan(tomoya_fcpc)]=0
+for s in np.arange(6):
+    r[s]=np.corrcoef(tomoya_fcpc[s,:], tomoya_pca_WxV[:,s])[0,1]
 
 ### project task PC onto cortex
 cortex_pc1projection = zscore(np.dot(np.mean(mdtb_pca_WxV, axis=1), mdtb_fc.data.mean(axis=2)))
@@ -842,6 +849,18 @@ save_object(af_results, 'data/af_results')
 ### set evoke as uniform
 mdtb_activity_flow_uniform, mdtb_rsa_similarity_uniform, _ = activity_flow_subject(mdtb_fc, np.ones((mdtb_beta_matrix.shape)), mdtb_cortical_betas, MDTB_TASKS, rs_indexer=None)
 tomoya_activity_flow_uniform, tomoya_rsa_similarity_uniform, _ = activity_flow_subject(tomoya_fc, np.ones((tomoya_beta_matrix.shape)), tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
+np.save('data/mdtb_activity_flow_uniform', mdtb_activity_flow_uniform)
+np.save('data/mdtb_rsa_similarity_uniform',mdtb_rsa_similarity_uniform)
+np.save('data/tomoya_activity_flow_uniform',tomoya_activity_flow_uniform)
+np.save('data/tomoya_rsa_similarity_uniform',tomoya_rsa_similarity_uniform)
+
+# compare to null models
+from scipy.stats import ttest_rel
+ttest_rel(af_results['mdtb_activity_flow'].mean(axis=1), af_results['mdtb_activity_flow_null'].mean(axis=(0,2)))
+ttest_rel(af_results['mdtb_activity_flow'].mean(axis=1), mdtb_activity_flow_uniform.mean(axis=1))
+ttest_rel(af_results['tomoya_activity_flow'].mean(axis=1), af_results['tomoya_activity_flow_null'].mean(axis=(0,2)))
+ttest_rel(af_results['tomoya_activity_flow'].mean(axis=1), tomoya_activity_flow_uniform.mean(axis=1))
+
 
 ### test noise
 #test_noise(mdtb_beta_matrix)
@@ -971,13 +990,14 @@ for t, task in enumerate(MDTB_TASKS):
         i=i+1
 
 roi_df = pd.read_csv('data/100rois.csv')
+old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
 for t, task in enumerate(MDTB_TASKS):
     for sub in np.arange(mdtb_activity_flow.shape[1]):
-        for net in ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']:
+        for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
             af_df.loc[i,'Dataset'] = 'MDTB'
             af_df.loc[i,'Task'] = task
             af_df.loc[i,'Subject'] = str(sub)
-            af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = whole_brain_af_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(net))[0],t].mean()
+            af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = whole_brain_af_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0],t].mean()
             af_df.loc[i, 'Region'] = net 
             i=i+1
 
@@ -1000,7 +1020,7 @@ for t, task in enumerate(MDTB_TASKS):
         af_df.loc[i, 'Region'] = 'Null Model' 
         i=i+1
 
-af_uniform = af_simulation_results['mdtb_activity_flow_uniform']
+af_uniform = np.load('data/mdtb_activity_flow_uniform.npy')
 for t, task in enumerate(MDTB_TASKS):
     for sub in np.arange(mdtb_activity_flow.shape[1]):
         af_df.loc[i,'Dataset'] = 'MDTB'
@@ -1052,13 +1072,14 @@ for t, task in enumerate(TOMOYA_TASKS):
         i=i+1
 
 roi_df = pd.read_csv('data/100rois.csv')
+old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
 for t, task in enumerate(TOMOYA_TASKS):
     for sub in np.arange(tomoya_activity_flow.shape[1]):
-        for net in ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']:
+        for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
             af_df.loc[i,'Dataset'] = 'N&N'
             af_df.loc[i,'Task'] = task
             af_df.loc[i,'Subject'] = str(sub)
-            af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = whole_brain_af_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(net))[0],t].mean()
+            af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = whole_brain_af_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0],t].mean()
             af_df.loc[i, 'Region'] = net 
             i=i+1
 
@@ -1081,7 +1102,7 @@ for t, task in enumerate(TOMOYA_TASKS):
         af_df.loc[i, 'Region'] = 'Null Model' 
         i=i+1
 
-af_uniform = af_simulation_results['tomoya_activity_flow_uniform']
+af_uniform = np.load('data/tomoya_activity_flow_uniform.npy')
 for t, task in enumerate(TOMOYA_TASKS):
     for sub in np.arange(tomoya_activity_flow.shape[1]):
         af_df.loc[i,'Dataset'] = 'N&N'
@@ -1113,9 +1134,13 @@ for x in np.arange(len(af_df)):
 
 af_df.to_csv('data/af_df.csv')
 sns.catplot(y="Region", x="Predicted vs. Observed Evoked Responses", kind="bar", data=af_df, hue='Dataset',
-order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SomMot','Limbic','DorsAttn','SalVentAttn','Default','Cont', 'Null Model', 'Uniformed Evoked Model'])
+order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SM','Limbic','DA','CO','DF','FP', 'Null Model', 'Uniformed Evoked Model'])
 fig.tight_layout() 
-plt.savefig("images/af_flow.png", bbox_inches='tight')
+plt.savefig("/home/kahwang/RDSS/tmp/af_flow.png", bbox_inches='tight')
+
+
+### do some stats
+
 
 mdtb_df = af_df.loc[(af_df['Dataset']=='MDTB') & (af_df['Region']=='Thalamus')]
 tomoya_df = af_df.loc[(af_df['Dataset']=='N&N') & (af_df['Region']=='Thalamus')]
@@ -1146,7 +1171,7 @@ new_cii.to_filename('data/af.400.dscalar.nii')
 
 
 #######################################################
-##### Figure 4, RSA
+##### Figure 6, RSA
 ############################################################
 plt.figure()
 ax = sns.heatmap(np.corrcoef(mdtb_cortical_betas.mean(axis=2).T))
@@ -1195,11 +1220,12 @@ for sub in np.arange(mdtb_rsa_similarity.shape[0]):
     i=i+1
 
 roi_df = pd.read_csv('data/100rois.csv')
+old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
 for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-        for net in ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']:
+        for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
             rsa_df.loc[i,'Dataset'] = 'MDTB'
             rsa_df.loc[i,'Subject'] = str(sub)
-            rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(net))[0]].mean()
+            rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0]].mean()
             rsa_df.loc[i, 'Region'] = net 
             i=i+1
 
@@ -1260,11 +1286,12 @@ for sub in np.arange(tomoya_rsa_similarity.shape[0]):
     i=i+1
 
 roi_df = pd.read_csv('data/100rois.csv')
+old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
 for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-    for net in ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']:
+    for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
         rsa_df.loc[i,'Dataset'] = 'N&N'
         rsa_df.loc[i,'Subject'] = str(sub)
-        rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(net))[0]].mean()
+        rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0]].mean()
         rsa_df.loc[i, 'Region'] = net 
         i=i+1
 
@@ -1314,9 +1341,15 @@ for x in np.arange(len(rsa_df)):
 
 rsa_df.to_csv('data/rsa_df.csv')
 sns.catplot(y="Region", x="Predicted vs. Observed RDM", kind="bar", data=rsa_df, hue='Dataset',
-order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SomMot','Limbic','DorsAttn','SalVentAttn','Default','Cont', 'Null Model', 'Uniformed Evoked Model'])
+order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SM','Limbic','DA','CO','DF','FP', 'Null Model', 'Uniformed Evoked Model'])
 fig.tight_layout() 
-plt.savefig("images/af_rsa.png", bbox_inches='tight')
+plt.savefig("/home/kahwang/RDSS/tmp/af_rsa.png", bbox_inches='tight')
+
+# run some tests
+ttest_rel(af_results['mdtb_rsa_similarity_null'].mean(axis=0), af_results['mdtb_rsa_similarity'])
+ttest_rel(mdtb_rsa_similarity_uniform, af_results['mdtb_rsa_similarity'])
+ttest_rel(af_results['tomoya_rsa_similarity_null'].mean(axis=0), af_results['tomoya_rsa_similarity'])
+ttest_rel(tomoya_rsa_similarity_uniform, af_results['tomoya_rsa_similarity'])
 
 
 ## write cifti surface file for plotting
@@ -1342,7 +1375,7 @@ new_cii.to_filename('data/rsa.100.tomoya.dscalar.nii')
 
 
 #######################################################
-##### Simulate lesion effect on activity flow and RSA, Figure 5
+##### Simulate lesion effect on activity flow and RSA, Figure 7-8
 ############################################################
 af_results = read_object('data/af_results')
 mdtb_activity_flow = af_results['mdtb_activity_flow']
@@ -1488,7 +1521,7 @@ make_cii(cortex_dpc, "cortex_dpc.dscalar.nii")
 
 
 #######################################################
-##### Compare simulated effects to real lesions, Figure 6
+##### Compare simulated effects to real lesions, Figure 8
 ############################################################
 plot_tha(nib.load('images/mmlesion2mm.nii.gz'), 0, 6, "hot", "images/mmlesion.png")
 plot_tha(nib.load('images/smlesion2mm.nii.gz'), 0, 6, "hot", "images/smlesion.png")
@@ -1572,8 +1605,25 @@ fig.set_size_inches([4,4])
 fig.tight_layout() 
 plt.savefig("images/rsa_lesion_df.png", bbox_inches='tight')
 
+## statistical tests of MM v SM
+#Komogorov-Smirnov test
+from scipy.stats import kstest
 
+a = dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='MDTB') & (dpc_lesion_df['Lesion Sites']=='MM')]['% reduction in evoked pattern correlation'].values
+b =dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='MDTB') & (dpc_lesion_df['Lesion Sites']=='SM')]['% reduction in evoked pattern correlation'].values
+kstest(a,b)
 
+a = dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='N&N') & (dpc_lesion_df['Lesion Sites']=='MM')]['% reduction in evoked pattern correlation'].values
+b =dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='N&N') & (dpc_lesion_df['Lesion Sites']=='SM')]['% reduction in evoked pattern correlation'].values
+kstest(a,b)
+
+a = rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='MDTB') & (rsa_lesion_df['Lesion Sites']=='MM')]['% reduction in RDM similarity'].values
+b =rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='MDTB') & (rsa_lesion_df['Lesion Sites']=='SM')]['% reduction in RDM similarity'].values
+kstest(a,b)
+
+a = rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='MM')]['% reduction in RDM similarity'].values
+b =rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='SM')]['% reduction in RDM similarity'].values
+kstest(a,b)
 
 ###############################################################
 ############## Supplementary analyses
