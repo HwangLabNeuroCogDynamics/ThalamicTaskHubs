@@ -1,6 +1,6 @@
-# code for Thalamocortical contribution to cognitive task activity
+# Thalamocortical contribution to cognitive task activity
 
-#raw data can be downloaded at:
+## raw data can be downloaded at:
 
 MDTB: https://openneuro.org/datasets/ds002105/
 
