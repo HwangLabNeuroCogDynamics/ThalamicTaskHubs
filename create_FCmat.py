@@ -81,7 +81,7 @@ for i, sub in enumerate(mdtb_subs):
 	fcmat[np.isnan(fcmat)] = 0
 	mdtb_fcmats[:,:,i] = fcmat
 
-np.save(mdtb_dir + "analysis/mdtb_pcafcmats", mdtb_fcmats)
+np.save(mdtb_dir + "analysis/mdtb_fcmats", mdtb_fcmats)
 
 tomoya_fcmats = np.zeros((2445, 400, len(tomoya_subs)))
 for i, sub in enumerate(tomoya_subs):
@@ -98,7 +98,7 @@ for i, sub in enumerate(tomoya_subs):
 	fcmat[np.isnan(fcmat)] = 0
 	tomoya_fcmats[:,:,i] = fcmat
 
-np.save(tomoya_dir + "analysis/tomoya_pcafcmats", tomoya_fcmats)
+np.save(tomoya_dir + "analysis/tomoya_fcmats", tomoya_fcmats)
 
 
 
