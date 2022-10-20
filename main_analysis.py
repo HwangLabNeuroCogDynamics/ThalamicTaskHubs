@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 ### thalpy is a lab-wide library for common funcitons we use in our lab
 ### see: https://github.com/HwangLabNeuroCogDynamics/thalpy
 from thalpy.constants import paths 
-from thalpy.analysis import pc, plotting, feature_extraction, glm, fc
+from thalpy.analysis import glm, feature_extraction
 from thalpy import masks, base 
 from scipy.stats import spearmanr, zscore
 from scipy.spatial import distance
@@ -530,13 +530,16 @@ def run_tomoya_beta_matrix(mni_thalamus_masker):
 tomoya_beta_matrix = np.load('data/tomoya_beta_matrix.npy')
 
 #run pca
-tomoya_pca_WxV = np.zeros([masks.masker_count(tomoya_masker), 6])
-tomoya_explained_var = pd.DataFrame()
+tomoya_pca_WxV = np.zeros([masks.masker_count(tomoya_masker), 6]) #the hub metric
+tomoya_pca_W = np.zeros([masks.masker_count(tomoya_masker), 6]) #without the variance term
+tomoya_pca_Ws = np.zeros([masks.masker_count(tomoya_masker), 10, 6]) #saving weights
+tomoya_pca_WxV_l = np.zeros([masks.masker_count(tomoya_masker), 6]) #less important components
 
+tomoya_explained_var = pd.DataFrame()
 for s in np.arange(tomoya_beta_matrix.shape[2]):
 	mat = tomoya_beta_matrix[:,:,s]
 	fn = 'tomoya_pca_sub' + str(s)
-	comps, _, var = run_pca(mat, tomoya_dir_tree, fn, TOMOYA_TASKS, masker=tomoya_masker)
+	comps, loadings, var = run_pca(mat, tomoya_dir_tree, fn, TOMOYA_TASKS, masker=tomoya_masker)
 	plt.close('all')
 	tdf = pd.DataFrame()
 	tdf['Component'] = np.arange(1,11)
@@ -547,9 +550,19 @@ for s in np.arange(tomoya_beta_matrix.shape[2]):
 	tomoya_explained_var = tomoya_explained_var.append(tdf) 
 	for i in np.arange(10):
 		tomoya_pca_WxV[:,s] = tomoya_pca_WxV[:,s] + abs(comps[:,i])*var[i] #each subjects PCAweight * variance explained
-	   
+		tomoya_pca_W[:,s] = tomoya_pca_W[:,s] + abs(comps[:,i]) #each subjects PCAweight . Without weighting. See what we get
+	for i in np.arange(10):	
+		tomoya_pca_Ws[:,i, s] = abs(comps[:,i])
+	for i in np.arange(11,21):	
+		tomoya_pca_WxV_l[:,s] = tomoya_pca_WxV_l[:,s] + abs(comps[:,i])*var[i] #lower PCs.
+
 tomoya_pca_weight = tomoya_masker.inverse_transform(np.mean(tomoya_pca_WxV, axis=1))  #average across subjects
+tomoya_pca_w = tomoya_masker.inverse_transform(np.mean(tomoya_pca_W, axis=1)) 
+tomoya_pca_ws = tomoya_masker.inverse_transform(np.std(tomoya_pca_Ws, axis=1).mean(axis=1)) 
+tomoya_pca_weight_l = tomoya_masker.inverse_transform(np.mean(tomoya_pca_WxV_l, axis=1)) #lower PCs.
+#tomoya_pca_ws = tomoya_masker.inverse_transform(np.mean(tomoya_pca_Ws, axis=1))  
 nib.save(tomoya_pca_weight, "images/tomoya_pca_weight.nii.gz")
+nib.save(tomoya_pca_w, "images/tomoya_pca_w.nii.gz")
 
 #### MDTB dataset
 mdtb_masker = mni_thalamus_masker.fit(nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"))
@@ -569,10 +582,14 @@ mdtb_beta_matrix = np.load('data/mdtb_beta_matrx.npy')
 
 mdtb_explained_var = pd.DataFrame()
 mdtb_pca_WxV = np.zeros([masks.masker_count(mdtb_masker), 21])
+mdtb_pca_W = np.zeros([masks.masker_count(mdtb_masker), 21])
+mdtb_pca_Ws = np.zeros([masks.masker_count(mdtb_masker), 10, 21])
+mdtb_pca_WxV_l = np.zeros([masks.masker_count(mdtb_masker), 21])
+
 for s in np.arange(mdtb_beta_matrix.shape[2]):
 	mat = mdtb_beta_matrix[:,:,s]
 	fn = 'mdtb_pca_sub' + str(s)
-	comps, w, var = run_pca(mat, MDTB_DIR_TREE, fn, MDTB_TASKS, masker=mdtb_masker)
+	comps, loadings, var = run_pca(mat, MDTB_DIR_TREE, fn, MDTB_TASKS, masker=mdtb_masker)
 	plt.close('all')
 	tdf = pd.DataFrame()
 	tdf['Component'] = np.arange(1,11)
@@ -583,18 +600,29 @@ for s in np.arange(mdtb_beta_matrix.shape[2]):
 	mdtb_explained_var = mdtb_explained_var.append(tdf)
 	for i in np.arange(10):
 		mdtb_pca_WxV[:,s] = mdtb_pca_WxV[:,s] + abs(comps[:,i])*var[i] #each subjects PCAweight * variance explained
+		mdtb_pca_W[:,s] = mdtb_pca_W[:,s] + abs(comps[:,i])
+	for i in np.arange(10):	
+		mdtb_pca_Ws[:,i, s] = abs(comps[:,i])
+	for i in np.arange(10,20):	
+		mdtb_pca_WxV_l[:,s] = mdtb_pca_WxV_l[:,s] + abs(comps[:,i])*var[i]
 
 mdtb_pca_weight = mdtb_masker.inverse_transform(np.mean(mdtb_pca_WxV, axis=1)) #average across subjects
+mdtb_pca_w = mdtb_masker.inverse_transform(np.mean(mdtb_pca_W, axis=1))
+mdtb_pca_ws = mdtb_masker.inverse_transform(np.var(mdtb_pca_Ws, axis=1).mean(axis=1)) 
+mdtb_pca_weight_l = mdtb_masker.inverse_transform(np.mean(mdtb_pca_WxV_l, axis=1)) #average across subjects
+
 nib.save(mdtb_pca_weight, "images/mdtb_pca_weight.nii.gz")
+nib.save(mdtb_pca_w, "images/mdtb_pca_w.nii.gz")
+
 
 ######## Varaince explained plot
 df = mdtb_explained_var.append(tomoya_explained_var)
 df['Component'] = df['Component'].astype('str')
 
-g = sns.barplot(data=df, x="Component", y="Varaince Explained", hue='Dataset')
+g = sns.barplot(data=df, x="Component", y="Varaince Explained", hue='Dataset', errorbar='se')
 g.get_legend().remove()
 g2 = g.twinx()
-g2 = sns.lineplot(data=df, x="Component", y="Sum of Variance Explained", hue='Dataset', legend = False)
+g2 = sns.lineplot(data=df, x="Component", y="Sum of Variance Explained", hue='Dataset', legend = False, errorbar='se')
 fig = plt.gcf()
 fig.set_size_inches([6,4])
 fig.tight_layout()
@@ -633,6 +661,32 @@ plot_tha(mdtb_pca_weight, lb, ub+0.1, "autumn", "images/mdtb_pca_weight.png") #c
 lb = np.percentile(np.mean(tomoya_pca_WxV, axis=1),20)
 ub = np.percentile(np.mean(tomoya_pca_WxV, axis=1),80)
 plot_tha(tomoya_pca_weight, lb, ub+0.05, "autumn", "images/tomoya_pca_weight.png")
+
+lb = np.percentile(np.mean(tomoya_pca_W, axis=1),20)
+ub = np.percentile(np.mean(tomoya_pca_W, axis=1),80)
+plot_tha(tomoya_pca_w, lb, ub+0.05, "autumn", "images/tomoya_pca_w.png")
+
+lb = np.percentile(np.mean(tomoya_pca_Ws, axis=1),20)
+ub = np.percentile(np.mean(tomoya_pca_Ws, axis=1),80)
+plot_tha(tomoya_pca_ws, lb, ub+0.05, "autumn", "images/tomoya_pca_ws.png")
+
+lb = np.percentile(np.mean(mdtb_pca_W, axis=1),20)
+ub = np.percentile(np.mean(mdtb_pca_W, axis=1),80)
+plot_tha(mdtb_pca_w, lb, ub+0.05, "autumn", "images/mdtb_pca_w.png")
+
+lb = np.percentile(np.mean(mdtb_pca_Ws, axis=1),20)
+ub = np.percentile(np.mean(mdtb_pca_Ws, axis=1),80)
+plot_tha(mdtb_pca_ws, lb, ub+0.05, "autumn", "images/mdtb_pca_ws.png")
+
+np.corrcoef(np.mean(mdtb_pca_W, axis=1), np.mean(mdtb_pca_WxV, axis=1))
+np.corrcoef(np.mean(tomoya_pca_W, axis=1), np.mean(tomoya_pca_WxV, axis=1))
+
+lb = np.percentile(np.mean(mdtb_pca_WxV_l, axis=1),25)
+ub = np.percentile(np.mean(mdtb_pca_WxV_l, axis=1),75)
+plot_tha(mdtb_pca_weight_l, lb, ub+0.1, "autumn", "images/mdtb_pca_weight_l.png")
+lb = np.percentile(np.mean(tomoya_pca_WxV_l, axis=1),25)
+ub = np.percentile(np.mean(tomoya_pca_WxV_l, axis=1),75)
+plot_tha(tomoya_pca_weight_l, lb, ub+0.05, "autumn", "images/tomoya_pca_weight_l.png")
 
 
 ##### Compare to FC PC (rsFC and backgroundFC)
@@ -722,6 +776,11 @@ make_cii(cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
 ######## Activity flow prediction, Figure 3 & 4
 ################################################################################################
 # activity flow analysis: predicited cortical evoked responses = thalamus evoke x thalamocortical FC, compare to observed cortical evoked responses
+
+## split half reliability for noise ceiling calculation: sqrt(rliability(AF_first_half, AF_second_half)*reliability(cortical_evoke_first_half, cortical_evoke_second_half))
+# first part, the reliability of cortical evoked results
+
+
 
 # load fc objects again, thalamocortical fc matrices stored here
 #mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
