@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 ### thalpy is a lab-wide library for common funcitons we use in our lab
 ### see: https://github.com/HwangLabNeuroCogDynamics/thalpy
 from thalpy.constants import paths 
-from thalpy.analysis import glm, feature_extraction
+from thalpy.analysis import glm, feature_extraction, fc
 from thalpy import masks, base 
 from scipy.stats import spearmanr, zscore
 from scipy.spatial import distance
@@ -61,46 +61,6 @@ def run_pca(matrix, dir_tree, output_name, task_list, masker=None):
 	#display(HTML(summary_df.to_html()))
 	os.chdir(currnet_path)
 	return pca, loadings, explained_var
-
-
-############################################################
-## clustering functions
-############################################################
-from sklearn.cluster import AgglomerativeClustering
-from scipy.cluster.hierarchy import dendrogram
-import scipy.cluster.hierarchy as shc
-
-def plot_dendrogram(model, **kwargs):
-	# Create linkage matrix and then plot the dendrogrammasks
-
-	# create the counts of samples under each node
-	counts = np.zeros(model.children_.shape[0])
-	n_samples = len(model.labels_)
-	for i, merge in enumerate(model.children_):
-		current_count = 0
-		for child_idx in merge:
-			if child_idx < n_samples:
-				current_count += 1  # leaf node
-			else:
-				current_count += counts[child_idx - n_samples]
-		counts[i] = current_count
-
-	linkage_matrix = np.column_stack([model.children_, model.distances_,
-									  counts]).astype(float)
-	# Plot the corresponding dendrogram
-	dendrogram(linkage_matrix, **kwargs)
-
-def hier_cluster(task_matrix, n_clusters=None):
-	if n_clusters is None:
-		distance_threshold = 0
-	else:
-		distance_threshold = None
-	
-	model = AgglomerativeClustering(distance_threshold=distance_threshold, n_clusters=n_clusters)
-	cluster = model.fit(task_matrix.swapaxes(0, 1)) #task by roi/vox
-	if distance_threshold is not None:
-		plot_dendrogram(model)
-	return cluster
 
 ############################################################
 ## PC function
@@ -202,22 +162,6 @@ def activity_flow_subject(rs, thal_betas, cortical_betas, task_list, rs_indexer=
 	else:
 		return sub_cor_array, sub_rsa, sub_accu
 
-#distance function for rsa
-def rsa_mahalanobis(mat, cov):
-	'''calculate rsa matrix using mahanobis distance, input expected to be ROI by condition, the output will be condition by condition, and noise cov will be ROI by ROI'''
-	num_roi = mat.shape[0]
-	num_cond = mat.shape[1]
-	# try:
-	vi = np.linalg.inv(cov) #inverse of cov
-	# except:
-	#vi = np.linalg.pinv(np.cov(mat))
-	
-	rsa = np.empty((num_cond, num_cond))
-	for m in np.arange(num_cond):
-		for n in np.arange(num_cond):
-			rsa[m,n] = distance.mahalanobis(mat[:,m],mat[:,n],vi)
-	return rsa
-
 # Null Models
 def null_activity_flow(thal_betas, cortical_betas, rs, task_list, num_permutation=1000, sub_rs_indexer=None, avg_rs_indexer=None):
 	if sub_rs_indexer:
@@ -246,33 +190,6 @@ def null_activity_flow(thal_betas, cortical_betas, rs, task_list, num_permutatio
 		null_sub_corr_array[i, :, :], null_sub_rsa[i,:], null_sub_accu[i,:] = activity_flow_subject(rs, rand_sub_thal, cortical_betas, task_list, rs_indexer=sub_rs_indexer)
 	
 	return null_sub_corr_array, null_sub_rsa, null_sub_accu
-
-### noise ceiling calculations
-def test_noise(inputmat):
-	srsa = np.empty((25,25,21))
-	for s in np.arange(21):
-		mat = inputmat[:,:,s]
-		srsa[:,:,s] = np.corrcoef(mat.T) 
-	mrsa = srsa.mean(axis=2)
-	for s in np.arange(21):
-		print(kendalltau(mrsa[np.triu_indices(25,k=1)],  srsa[:,:,s][np.triu_indices(25,k=1)]))
-
-	for s in np.arange(21):
-		mb = inputmat[:,:,np.where(np.arange(21)!=s)[0]].mean(axis=2)
-		for n in np.arange(25): 
-			print(np.corrcoef(mb[:,n], inputmat[:,n,s])[0,1])
-
-	srsa = np.empty((25,25,21))
-	for s in np.arange(21):
-		mat = inputmat[:,:,s]
-		srsa[:,:,s] = np.corrcoef(mat.T) 
-		mats = inputmat[:,:,np.where(np.arange(21)!=s)[0]]
-		bsrsa = np.empty((25,25,20))
-		for i in np.arange(20):
-			mat = mats[:,:,i]
-			bsrsa[:,:,i] = np.corrcoef(mat.T) 
-		mrsa = bsrsa.mean(axis=2)
-		print(kendalltau(mrsa[np.triu_indices(25,k=1)],  srsa[:,:,s][np.triu_indices(25,k=1)]))    
 
 ### functions for whole brain activity flow
 def make_voxel_roi_masker(cortical_mask,roi_idx):
@@ -319,7 +236,6 @@ def cal_vox_roi_fc(subjects, roi_mask, cortical_ts, num_voxels, num_roi):
 		fcmat[:,:,sub_index] = generate_correlation_mat(roi_ts.T, wb_ts.T)
 	return fcmat
 
-
 def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matrix, fbuck = "FIRmodel_MNI_stats_block+tlrc.BRIK", resid = "FIRmodel_errts_block_rs.nii.gz", ftemplate = "FIRmodel_MNI_stats_block_rs.nii.gz"):
 	''' run whole brain activity flow giving a source roi input'''
 	num_roi = len(np.unique(source_roi.get_fdata()))-1
@@ -328,6 +244,7 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
 	whole_brain_af_corr = np.zeros((num_sub, num_roi, num_tasks))
 	whole_brain_af_rsa_corr =  np.zeros((num_sub, num_roi))
 	whole_brain_af_predicition_accu =  np.zeros((num_sub, num_roi))
+	whole_brain_af_pred = np.zeros((num_sub, num_tasks, 400, num_roi))
 
 	for sub_index, sub in enumerate(subs):
 		funcfile = sub.deconvolve_dir + resid # this is data in the 2x2x2 grid, must be the same as the ROI.
@@ -336,8 +253,9 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
 		for roi in np.arange(num_roi):
 			roi = roi+1
 			roi_mask = make_roi_mask(source_roi, roi)
-			roi_masker = input_data.NiftiMasker(roi_mask) 
-			roi_masker.fit(sub.deconvolve_dir+ftemplate)
+			roi_mask_rs = resample_to_img(roi_mask, sub.deconvolve_dir+ftemplate, interpolation = 'nearest')
+			roi_masker = input_data.NiftiMasker(roi_mask_rs) 
+			#roi_masker.fit(sub.deconvolve_dir+ftemplate)
 			#roi_voxel_mask = make_voxel_roi_masker(source_roi, roi)
 			#ftemplate = nib.load(sub.deconvolve_dir+ template_fn)
 			#roi_voxel_mask = resample_to_img(roi_voxel_mask, ftemplate, interpolation = 'nearest')
@@ -348,12 +266,11 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
 			roi_beta_matrix = glm.load_brik([sub], roi_masker, fbuck , tasks, zscore=True, kind="beta")
 			
 			#then need to calculate voxel-whole brain FC matrix
-			roi_mask = make_roi_mask(source_roi, roi)
-			roi_masker = input_data.NiftiMasker(roi_mask)
-			roi_masker.fit(sub.deconvolve_dir+ftemplate)
-			#roi_mask = resample_to_img(roi_mask, ftemplate, interpolation = 'nearest')
+			#roi_mask = make_roi_mask(source_roi, roi)
+			#roi_masker = input_data.NiftiMasker(roi_mask)
+			#roi_masker.fit(sub.deconvolve_dir+ftemplate)
 			#roi_masker = input_data.NiftiMasker(roi_mask) #here using nifti maker, and fit_transform will output all voxel values instead of averaging.
-			roi_ts = fdata[np.nonzero(roi_mask.get_fdata())] #voxel ts in roi, use direct indexing to save time. # the result of this is the same as using masker.fit_transform(), but much faster
+			roi_ts = fdata[np.nonzero(roi_mask_rs.get_fdata())] #voxel ts in roi, use direct indexing to save time. # the result of this is the same as using masker.fit_transform(), but much faster
 			wb_ts = cortical_ts[sub_index] #whole brain ts
 
 			# check censored data
@@ -364,18 +281,20 @@ def run_whole_brain_af(source_roi, subs, tasks, cortical_ts, cortical_beta_matri
 				continue
 
 			#roi vox by whole brain corr mat
-			#fcmat = generate_correlation_mat(roi_ts, wb_ts.T)
-			fcmat = pca_reg_fc(roi_ts.T, wb_ts)
+			fcmat = generate_correlation_mat(roi_ts, wb_ts.T)
+			#fcmat2 = pca_reg_fc(roi_ts.T, wb_ts)
 			#generate_correlation_mat(roi_ts.T, wb_ts.T)
 			fcmat[np.isnan(fcmat)] = 0
 
 			#aflow
-			task_corr, rsa_corr, pred_accu = activity_flow_subject(fcmat, roi_beta_matrix, cortical_beta_matrix, tasks)
+			task_corr, rsa_corr, pred_accu, pred = activity_flow_subject(fcmat, roi_beta_matrix, cortical_beta_matrix, tasks, return_pred=True)
 			whole_brain_af_corr[sub_index, roi-1, :] = task_corr[:,0]
 			whole_brain_af_rsa_corr[sub_index, roi-1] = rsa_corr
 			whole_brain_af_predicition_accu[sub_index, roi-1]= pred_accu
+			pred = np.array(pred)
+			whole_brain_af_pred[sub_index, :,:,roi-1] = pred  
 
-	return whole_brain_af_corr, whole_brain_af_rsa_corr, whole_brain_af_predicition_accu
+	return whole_brain_af_corr, whole_brain_af_rsa_corr, whole_brain_af_predicition_accu, whole_brain_af_pred
 
 ### sysmatically remove thalamus activity based on ranking of PC values 
 def threshold_matrix(beta_matrix, taskpc, low_threshold, top_threshold):
@@ -776,156 +695,251 @@ make_cii(cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
 ######## Activity flow prediction, Figure 3 & 4
 ################################################################################################
 # activity flow analysis: predicited cortical evoked responses = thalamus evoke x thalamocortical FC, compare to observed cortical evoked responses
-
-## split half reliability for noise ceiling calculation: sqrt(rliability(AF_first_half, AF_second_half)*reliability(cortical_evoke_first_half, cortical_evoke_second_half))
-# first part, the reliability of cortical evoked results
-
-
-
-# load fc objects again, thalamocortical fc matrices stored here
-#mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
-mdtb_fc = np.load(MDTB_ANALYSIS_DIR + "mdtb_fcmats.npy")
-#tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
-tomoya_fc = np.load(tomoya_dir_tree.analysis_dir + "tomoya_fcmats.npy")
-
 mni_thalamus_masker = masks.binary_masker("/home/kahwang/bsh/ROIs/mni_atlas/MNI_thalamus_2mm.nii.gz")
 mdtb_masker = mni_thalamus_masker.fit(nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz"))
 tomoya_masker = mni_thalamus_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/data/Tomoya/3dDeconvolve/sub-01/FIRmodel_MNI_stats+tlrc.BRIK'))
-
-# load thalamus task evoked responses, mdtb
-# mdtb_masker = masks.binary_masker(masks.MOREL_PATH)
-# img = nib.load(MDTB_DIR_TREE.fmriprep_dir + "sub-02/ses-a1/func/sub-02_ses-a1_task-a_run-1_space-MNI152NLin2009cAsym_desc-preproc_bold.nii.gz")
-# mdtb_masker.fit(img)
-mdtb_beta_matrix = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-# tomoya
-# tomoya_masker = masks.binary_masker(masks.MOREL_PATH)
-# tomoya_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/data/Tomoya/3dDeconvolve/sub-01/FIRmodel_MNI_stats+tlrc.BRIK'))
-tomoya_beta_matrix = glm.load_brik(tomoya_subjects, tomoya_masker, "FIRmodel_MNI_stats+tlrc.BRIK", TOMOYA_TASKS, zscore = True, kind="beta")
-
-# observed cortical evoked responses
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
+
+## split half reliability for noise ceiling calculation: sqrt(rliability(AF_first_half, AF_second_half)*reliability(cortical_evoke_first_half, cortical_evoke_second_half))
+
+# first part, the reliability of cortical evoked results
+mdtb_beta_matrix_block1 = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+mdtb_beta_matrix_block2 = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+tomoya_beta_matrix_block1 = glm.load_brik(tomoya_subjects, tomoya_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", TOMOYA_TASKS, zscore = True, kind="beta")
+tomoya_beta_matrix_block2 = glm.load_brik(tomoya_subjects, tomoya_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", TOMOYA_TASKS, zscore = True, kind="beta")
+mdtb_cortical_betas_block1 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+tomoya_cortical_betas_block1  = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+mdtb_cortical_betas_block2 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+tomoya_cortical_betas_block2  = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
 mdtb_cortical_betas = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
 tomoya_cortical_betas  = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+
+mdtb_cortical_betas_reliability = np.zeros((21,25))
+for s in np.arange(21):
+	for t in np.arange(25):
+		mdtb_cortical_betas_reliability[s,t] = np.corrcoef(zscore(mdtb_cortical_betas_block1[:,t,s]),zscore(mdtb_cortical_betas_block2[:,t,s]))[0,1]
+np.save("data/mdtb_cortical_betas_reliability", mdtb_cortical_betas_reliability)
+tomoya_cortical_betas_reliability = np.zeros((6,102))
+for s in np.arange(6):
+	for t in np.arange(102):
+		tomoya_cortical_betas_reliability[s,t] = np.corrcoef(zscore(tomoya_cortical_betas_block1[:,t,s]),zscore(tomoya_cortical_betas_block2[:,t,s]))[0,1]
+np.save("data/tomoya_cortical_betas_reliability", tomoya_cortical_betas_reliability)
+
+#but now need to calculate AF model reliability
+mdtb_fc_block1 = np.load(MDTB_ANALYSIS_DIR + "mdtb_rfcmats_block1.npy")
+mdtb_fc_block2 = np.load(MDTB_ANALYSIS_DIR + "mdtb_rfcmats_block2.npy")
+tomoya_fc_block1 = np.load(tomoya_dir_tree.analysis_dir + "tomoya_rfcmats_block1.npy")
+tomoya_fc_block2 = np.load(tomoya_dir_tree.analysis_dir + "tomoya_rfcmats_block2.npy")
+
+mdtb_activity_flow_block1, mdtb_rsa_similarity_block1, mdtb_pred_accu_block1, mdtb_predicted_block1 = activity_flow_subject(mdtb_fc_block1, mdtb_beta_matrix_block1, mdtb_cortical_betas_block1, MDTB_TASKS, rs_indexer=None, return_pred = True)
+mdtb_predicted_block1 = zscore(np.array(mdtb_predicted_block1))
+mdtb_activity_flow_block2, mdtb_rsa_similarity_block2, mdtb_pred_accu_block2, mdtb_predicted_block2 = activity_flow_subject(mdtb_fc_block2, mdtb_beta_matrix_block2, mdtb_cortical_betas_block1, MDTB_TASKS, rs_indexer=None, return_pred = True)
+mdtb_predicted_block2 = zscore(np.array(mdtb_predicted_block2))
+mdtb_tha_af_reliability = np.zeros((21,25))
+for s in np.arange(21):
+	for t in np.arange(25):
+		mdtb_tha_af_reliability[s,t] = np.corrcoef(mdtb_predicted_block1[s,t,:],mdtb_predicted_block2[s,t,:])[0,1]
+
+tomoya_activity_flow_block1, tomoya_rsa_similarity_block1, tomoya_pred_accu_block1, tomoya_predicted_block1 = activity_flow_subject(tomoya_fc_block1, tomoya_beta_matrix_block1, tomoya_cortical_betas_block2, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
+tomoya_predicted_block1 = zscore(np.array(tomoya_predicted_block1))
+tomoya_activity_flow_block2, tomoya_rsa_similarity_block2, tomoya_pred_accu_block2, tomoya_predicted_block2 = activity_flow_subject(tomoya_fc_block2, tomoya_beta_matrix_block2, tomoya_cortical_betas_block1, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
+tomoya_predicted_block2 = zscore(np.array(tomoya_predicted_block2))
+tomoya_tha_af_reliability = np.zeros((6,102))
+for s in np.arange(6):
+	for t in np.arange(102):
+		tomoya_tha_af_reliability[s,t] = np.corrcoef(tomoya_predicted_block1[s,t,:],tomoya_predicted_block2[s,t,:])[0,1]
+
+#now calculate noise ceiling using split half reliability from AF model and cortical evoked responses
+mdtb_activity_flow_noise_ceiling = np.zeros((25,21)) #task by sub
+for s in np.arange(21):
+	for t in np.arange(25):
+		mdtb_activity_flow_noise_ceiling[t,s] = np.sqrt(mdtb_tha_af_reliability[s,t]*mdtb_cortical_betas_reliability[s,t])
+
+mdtb_activity_flow_normalized = 0.5*(mdtb_activity_flow_block1 + mdtb_activity_flow_block1) / mdtb_activity_flow_noise_ceiling
+mdtb_activity_flow = 0.5*(mdtb_activity_flow_block1 + mdtb_activity_flow_block1)
+
+tomoya_activity_flow_noise_ceiling = np.zeros((102,6)) #task by sub
+for s in np.arange(6):
+	for t in np.arange(102):
+		tomoya_activity_flow_noise_ceiling[t,s] = np.sqrt(tomoya_tha_af_reliability[s,t]*tomoya_cortical_betas_reliability[s,t])
+tomoya_activity_flow_normalized = 0.5*(tomoya_activity_flow_block1 + tomoya_activity_flow_block1) / tomoya_activity_flow_noise_ceiling
+tomoya_activity_flow = 0.5*(tomoya_activity_flow_block1 + tomoya_activity_flow_block1)
 
 # load activity flow results df
 #mdtb_activityflow_df = read_object(MDTB_ANALYSIS_DIR + 'mdtb_activity_flow_dataframe.p')
 #tomoya_activityflow_df = read_object(tomoya_dir_tree.analysis_dir + 'mdtb_activity_flow_dataframe.p')
 
-### run basic activity flow and null models
-mdtb_activity_flow, mdtb_rsa_similarity, mdtb_pred_accu = activity_flow_subject(mdtb_fc, mdtb_beta_matrix, mdtb_cortical_betas, MDTB_TASKS, rs_indexer=None)
-tomoya_activity_flow, tomoya_rsa_similarity, tomoya_pred_accu = activity_flow_subject(tomoya_fc, tomoya_beta_matrix, tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
+### now run null models
+mdtb_fc = np.load(MDTB_ANALYSIS_DIR + "mdtb_fcmats.npy")
+tomoya_fc = np.load(tomoya_dir_tree.analysis_dir + "tomoya_fcmats.npy")
 mdtb_activity_flow_null, mdtb_rsa_similarity_null, mdtb_pred_accu_null = null_activity_flow(mdtb_beta_matrix, mdtb_cortical_betas, mdtb_fc, MDTB_TASKS, num_permutation=1000)
 tomoya_activity_flow_null, tomoya_rsa_similarity_null, tomoya_pred_accu_null = null_activity_flow(tomoya_beta_matrix, tomoya_cortical_betas, tomoya_fc, TOMOYA_TASKS, num_permutation=1000)
+mdtb_activity_flow_null = mdtb_activity_flow_null / mdtb_activity_flow_noise_ceiling
+tomoya_activity_flow_null = tomoya_activity_flow_null / tomoya_activity_flow_noise_ceiling
+### set evoke as uniform
+mdtb_activity_flow_uniform, mdtb_rsa_similarity_uniform, _ = activity_flow_subject(mdtb_fc, np.ones((mdtb_beta_matrix.shape)), mdtb_cortical_betas, MDTB_TASKS, rs_indexer=None)
+tomoya_activity_flow_uniform, tomoya_rsa_similarity_uniform, _ = activity_flow_subject(tomoya_fc, np.ones((tomoya_beta_matrix.shape)), tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
+mdtb_activity_flow_uniform = mdtb_activity_flow_uniform / mdtb_activity_flow_noise_ceiling
+tomoya_activity_flow_uniform = tomoya_activity_flow_uniform / tomoya_activity_flow_noise_ceiling
+### null model suggested by reviewer, averaged pattern across tasks
+mdtb_activity_flow_averaged_null, mdtb_rsa_similarity_averaged_null, _ = activity_flow_subject(mdtb_fc, np.repeat(mdtb_beta_matrix.mean(axis=1)[:,None,:],25,axis=1), mdtb_cortical_betas, MDTB_TASKS, rs_indexer=None)
+tomoya_activity_flow_averaged_null, tomoya_rsa_similarity_averaged_null, _ = activity_flow_subject(tomoya_fc, np.repeat(tomoya_beta_matrix.mean(axis=1)[:,None,:],102,axis=1), tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
+mdtb_activity_flow_averaged_null = mdtb_activity_flow_averaged_null / mdtb_activity_flow_noise_ceiling
+tomoya_activity_flow_averaged_null = tomoya_activity_flow_averaged_null / tomoya_activity_flow_noise_ceiling
 
 # save results to dict{}
 af_results = {}
 af_results['mdtb_activity_flow'] = mdtb_activity_flow
-af_results['mdtb_rsa_similarity'] = mdtb_rsa_similarity
-af_results['mdtb_pred_accu'] = mdtb_pred_accu
+af_results['mdtb_activity_flow_normalized'] = mdtb_activity_flow_normalized
 af_results['tomoya_activity_flow'] = tomoya_activity_flow
-af_results['tomoya_rsa_similarity'] = tomoya_rsa_similarity
-af_results['tomoya_pred_accu'] = tomoya_pred_accu
+af_results['tomoya_activity_flow_normalized'] = tomoya_activity_flow_normalized
 af_results['mdtb_activity_flow_null'] = mdtb_activity_flow_null
-af_results['mdtb_rsa_similarity_null'] = mdtb_rsa_similarity_null
-af_results['mdtb_pred_accu_null'] = mdtb_pred_accu_null
 af_results['tomoya_activity_flow_null'] = tomoya_activity_flow_null
-af_results['tomoya_rsa_similarity_null'] = tomoya_rsa_similarity_null
-af_results['tomoya_pred_accu_null'] = tomoya_pred_accu_null
+af_results['mdtb_activity_flow_uniform'] = mdtb_activity_flow_uniform
+af_results['tomoya_activity_flow_uniform'] = tomoya_activity_flow_uniform
+af_results['mdtb_activity_flow_averaged_null'] = mdtb_activity_flow_averaged_null
+af_results['tomoya_activity_flow_averaged_null'] = tomoya_activity_flow_averaged_null
 save_object(af_results, 'data/af_results')
 
-### set evoke as uniform
-mdtb_activity_flow_uniform, mdtb_rsa_similarity_uniform, _ = activity_flow_subject(mdtb_fc, np.ones((mdtb_beta_matrix.shape)), mdtb_cortical_betas, MDTB_TASKS, rs_indexer=None)
-tomoya_activity_flow_uniform, tomoya_rsa_similarity_uniform, _ = activity_flow_subject(tomoya_fc, np.ones((tomoya_beta_matrix.shape)), tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
-np.save('data/mdtb_activity_flow_uniform', mdtb_activity_flow_uniform)
-np.save('data/mdtb_rsa_similarity_uniform',mdtb_rsa_similarity_uniform)
-np.save('data/tomoya_activity_flow_uniform',tomoya_activity_flow_uniform)
-np.save('data/tomoya_rsa_similarity_uniform',tomoya_rsa_similarity_uniform)
-
 af_results = read_object('data/af_results')
-mdtb_activity_flow_uniform = np.load('data/mdtb_activity_flow_uniform.npy')
-mdtb_rsa_similarity_uniform = np.load('data/mdtb_rsa_similarity_uniform.npy')
-tomoya_activity_flow_uniform = np.load('data/tomoya_activity_flow_uniform.npy')
-tomoya_rsa_similarity_uniform = np.load('data/tomoya_rsa_similarity_uniform.npy')
 
 # compare to null models
 from scipy.stats import ttest_rel
-ttest_rel(af_results['mdtb_activity_flow'].mean(axis=1), af_results['mdtb_activity_flow_null'].mean(axis=(0,2)))
-ttest_rel(af_results['mdtb_activity_flow'].mean(axis=1), mdtb_activity_flow_uniform.mean(axis=1))
-ttest_rel(af_results['tomoya_activity_flow'].mean(axis=1), af_results['tomoya_activity_flow_null'].mean(axis=(0,2)))
-ttest_rel(af_results['tomoya_activity_flow'].mean(axis=1), tomoya_activity_flow_uniform.mean(axis=1))
-
+ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), af_results['mdtb_activity_flow_null'].mean(axis=(0,2)))
+ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), mdtb_activity_flow_uniform.mean(axis=1))
+ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), mdtb_activity_flow_averaged_null.mean(axis=1))
+ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), af_results['tomoya_activity_flow_null'].mean(axis=(0,2)))
+ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), tomoya_activity_flow_uniform.mean(axis=1))
+ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), tomoya_activity_flow_averaged_null.mean(axis=1))
 
 ######## Whole brain activity flow, Figure 3
 #load whole brain ROI mask, here we combine Schaeffer with several subcortical masks
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-Schaefer400_beta_matrix = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block_rs.nii.gz", MDTB_TASKS, zscore=True, kind="beta")
-np.save("data/Schaefer400_beta_matrix", Schaefer400_beta_matrix)
-Schaefer400_beta_matrix = np.load("data/Schaefer400_beta_matrix.npy")
-Schaeffer400_cortical_ts = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block_rs.nii.gz")
-np.save('data/Schaeffer400_cortical_ts', Schaeffer400_cortical_ts)
-Schaeffer400_cortical_ts = np.load('data/Schaeffer400_cortical_ts.npy', allow_pickle=True)
-#cortical_ts = np.load('data/Schaeffer400_cortical_ts', allow_pickle=True)
+Schaefer400_beta_matrix_block1 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+Schaefer400_beta_matrix_block2 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+np.save("data/Schaefer400_beta_matrix_block1", Schaefer400_beta_matrix_block1)
+np.save("data/Schaefer400_beta_matrix_block2", Schaefer400_beta_matrix_block2)
+
+Schaeffer400_cortical_ts_block1 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
+Schaeffer400_cortical_ts_block2 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
+np.save('data/Schaeffer400_cortical_ts_block1', Schaeffer400_cortical_ts_block1)
+np.save('data/Schaeffer400_cortical_ts_block2', Schaeffer400_cortical_ts_block2)
+
+Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
+Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
+Schaefer400_beta_matrix_block1 = np.load("data/Schaefer400_beta_matrix_block1.npy", allow_pickle=True)
+Schaefer400_beta_matrix_block2 = np.load("data/Schaefer400_beta_matrix_block2.npy", allow_pickle=True)
+Schaeffer400_cortical_ts_block1 = np.load('data/Schaeffer400_cortical_ts_block1.npy', allow_pickle=True)
+Schaeffer400_cortical_ts_block2 = np.load('data/Schaeffer400_cortical_ts_block2.npy', allow_pickle=True)
 subs = mdtb_subjects
 tasks = MDTB_TASKS
-
 CerebrA = nib.load("/data/backed_up/shared/ROIs/mni_atlas/CerebrA_2mm.nii.gz")
-whole_brain_af_corr, whole_brain_af_rsa_corr, whole_brain_af_predicition_accu = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts, Schaefer400_beta_matrix, "FIRmodel_MNI_stats_block_rs.nii.gz", "FIRmodel_errts_block_rs.nii.gz", "FIRmodel_MNI_stats_block_rs.nii.gz")
-np.save('data/whole_brain_af_corr_CerebrA.mdtb', whole_brain_af_corr)
-np.save('data/whole_brain_af_rsa_corr_CerebrA.mdtb', whole_brain_af_rsa_corr)
-np.save('data/whole_brain_af_predicition_accu_CerebrA.mdtb', whole_brain_af_predicition_accu)
+mdtb_whole_brain_af_corr_block1, mdtb_whole_brain_af_rsa_corr_block1, mdtb_whole_brain_af_predicition_accu_block1, mdtb_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+mdtb_whole_brain_af_corr_block2, mdtb_whole_brain_af_rsa_corr_block2, mdtb_whole_brain_af_predicition_accu_block2, mdtb_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+np.save('data/mdtb_whole_brain_af_corr_block1.mdtb', mdtb_whole_brain_af_corr_block1)
+np.save('data/mdtb_whole_brain_af_pred_block1.mdtb', mdtb_whole_brain_af_pred_block1)
+np.save('data/mdtb_whole_brain_af_corr_block2.mdtb', mdtb_whole_brain_af_corr_block2)
+np.save('data/mdtb_whole_brain_af_pred_block2.mdtb', mdtb_whole_brain_af_pred_block2)
 
-whole_brain_af_corr_400, whole_brain_af_rsa_corr_400, whole_brain_af_predicition_accu_400 = run_whole_brain_af(Schaefer400, subs, tasks, Schaeffer400_cortical_ts, Schaefer400_beta_matrix, "FIRmodel_MNI_stats_block_rs.nii.gz", "FIRmodel_errts_block_rs.nii.gz", "FIRmodel_MNI_stats_block_rs.nii.gz")
-np.save('data/whole_brain_af_corr_400.mdtb', whole_brain_af_corr_400)
-np.save('data/whole_brain_af_rsa_corr_400.mdtb', whole_brain_af_rsa_corr_400)
-np.save('data/whole_brain_af_predicition_accu_400.mdtb', whole_brain_af_predicition_accu_400)
+mdtb_cortical_betas_reliability = np.load("data/mdtb_cortical_betas_reliability.npy")
+mdtb_whole_brain_af_noise_ceiling = np.zeros((21,102,25)) 
+for s in np.arange(21):
+	for t in np.arange(25):
+		for r in np.arange(102):
+			mdtb_whole_brain_af_noise_ceiling[s,r,t] = np.sqrt(np.corrcoef(mdtb_whole_brain_af_pred_block1[s,t,:,r], mdtb_whole_brain_af_pred_block2[s,t,:,r])[0,1]* mdtb_cortical_betas_reliability[s,t])
+
+mdtb_whole_brain_af_corr_normed = 0.5*(mdtb_whole_brain_af_corr_block1 / mdtb_whole_brain_af_noise_ceiling)+0.5*(mdtb_whole_brain_af_corr_block2 / mdtb_whole_brain_af_noise_ceiling)
+mdtb_whole_brain_af_corr = 0.5*(mdtb_whole_brain_af_corr_block1) + 0.5*mdtb_whole_brain_af_corr_block2
+np.save("data/mdtb_whole_brain_af_corr_normed", mdtb_whole_brain_af_corr_normed)
+np.save("data/mdtb_whole_brain_af_corr", mdtb_whole_brain_af_corr)
 
 Schaefer100 = nib.load('data/Schaefer100+BG_2mm.nii.gz')
-whole_brain_af_corr_100, whole_brain_af_rsa_corr_100, whole_brain_af_predicition_accu_100 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts, Schaefer400_beta_matrix, "FIRmodel_MNI_stats_block_rs.nii.gz", "FIRmodel_errts_block_rs.nii.gz", "FIRmodel_MNI_stats_block_rs.nii.gz")
-np.save('data/whole_brain_af_corr_100.mdtb', whole_brain_af_corr_100)
-np.save('data/whole_brain_af_rsa_corr_100.mdtb', whole_brain_af_rsa_corr_100)
-np.save('data/whole_brain_af_predicition_accu_100.mdtb', whole_brain_af_predicition_accu_100)
+mdtb_whole_brain_af_corr_100_block1, mdtb_whole_brain_af_rsa_corr_100_block1, mdtb_whole_brain_af_predicition_accu_100_block1, mdtb_whole_brain_af_pred_100_block1 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+mdtb_whole_brain_af_corr_100_block2, mdtb_whole_brain_af_rsa_corr_100_block2, mdtb_whole_brain_af_predicition_accu_100_block2, mdtb_whole_brain_af_pred_100_block2 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+np.save('data/mdtb_whole_brain_af_corr_100_block1.mdtb', mdtb_whole_brain_af_corr_100_block1)
+np.save('data/mdtb_whole_brain_af_pred_100_block1.mdtb', mdtb_whole_brain_af_pred_100_block1)
+np.save('data/mdtb_whole_brain_af_corr_100_block2.mdtb', mdtb_whole_brain_af_corr_100_block2)
+np.save('data/mdtb_whole_brain_af_pred_100_block2.mdtb', mdtb_whole_brain_af_pred_100_block2)
+
+mdtb_cortical_betas_reliability = np.load("data/mdtb_cortical_betas_reliability.npy")
+mdtb_whole_brain_100_af_noise_ceiling = np.zeros((21,103,25)) 
+for s in np.arange(21):
+	for t in np.arange(25):
+		for r in np.arange(103):
+			mdtb_whole_brain_100_af_noise_ceiling[s,r,t] = np.sqrt(np.corrcoef(mdtb_whole_brain_af_pred_100_block1[s,t,:,r], mdtb_whole_brain_af_pred_100_block2[s,t,:,r])[0,1] * mdtb_cortical_betas_reliability[s,t])
+
+mdtb_whole_brain_100_af_corr_normed = 0.5*(mdtb_whole_brain_af_corr_100_block1 / mdtb_whole_brain_100_af_noise_ceiling)+0.5*(mdtb_whole_brain_af_corr_100_block2 / mdtb_whole_brain_100_af_noise_ceiling)
+mdtb_whole_brain_100_af_corr = 0.5*(mdtb_whole_brain_af_corr_100_block1) + 0.5*mdtb_whole_brain_af_corr_100_block2
+np.save("data/mdtb_whole_brain_100_af_corr_normed", mdtb_whole_brain_100_af_corr_normed)
+np.save("data/mdtb_whole_brain_100_af_corr", mdtb_whole_brain_100_af_corr)
+
 
 ### run tomoya whole brain AF
 subs = tomoya_subjects
 tasks = TOMOYA_TASKS
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-#tomoya_cortical_beta_matrix = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_rs.nii.gz", TOMOYA_TASKS, zscore=True, kind="beta")
-#np.save("data/tomoya_cortical_beta_matrix", tomoya_cortical_beta_matrix)
-tomoya_cortical_beta_matrix = np.load("data/tomoya_cortical_beta_matrix.npy")
-#tomoya_Schaeffer400_cortical_ts = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_rs.nii.gz")
-#np.save('data/tomoya_Schaeffer400_cortical_ts', tomoya_Schaeffer400_cortical_ts)
-tomoya_Schaeffer400_cortical_ts = np.load('data/tomoya_Schaeffer400_cortical_ts.npy', allow_pickle=True)
+tomoya_Schaefer400_beta_matrix_block1 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+tomoya_Schaefer400_beta_matrix_block2 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+np.save("data/tomoya_Schaefer400_beta_matrix_block1", tomoya_Schaefer400_beta_matrix_block1)
+np.save("data/tomoya_Schaefer400_beta_matrix_block2", tomoya_Schaefer400_beta_matrix_block2)
+
+tomoya_Schaeffer400_cortical_ts_block1 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
+tomoya_Schaeffer400_cortical_ts_block2 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
+np.save('data/tomoya_Schaeffer400_cortical_ts_block1', tomoya_Schaeffer400_cortical_ts_block1)
+np.save('data/tomoya_Schaeffer400_cortical_ts_block2', tomoya_Schaeffer400_cortical_ts_block2)
 
 CerebrA = nib.load("/data/backed_up/shared/ROIs/mni_atlas/CerebrA_2mm.nii.gz")
-whole_brain_af_corr, whole_brain_af_rsa_corr, whole_brain_af_predicition_accu = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts, tomoya_cortical_beta_matrix, "FIRmodel_MNI_stats_rs.nii.gz", "FIRmodel_errts_rs.nii.gz", "FIRmodel_MNI_stats_rs.nii.gz")
-np.save('data/whole_brain_af_corr_CerebrA.tomoya', whole_brain_af_corr)
-np.save('data/whole_brain_af_rsa_corr_CerebrA.tomoya', whole_brain_af_rsa_corr)
-np.save('data/whole_brain_af_predicition_accu_CerebrA.tomoya', whole_brain_af_predicition_accu)
+tomoya_whole_brain_af_corr_block1, tomoya_whole_brain_af_rsa_corr_block1, tomoya_whole_brain_af_predicition_accu_block1, tomoya_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+tomoya_whole_brain_af_corr_block2, tomoya_whole_brain_af_rsa_corr_block2, tomoya_whole_brain_af_predicition_accu_block2, tomoya_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+np.save('data/tomoya_whole_brain_af_corr_block1.tomoya', tomoya_whole_brain_af_corr_block1)
+np.save('data/tomoya_whole_brain_af_pred_block1.tomoya', tomoya_whole_brain_af_pred_block1)
+np.save('data/tomoya_whole_brain_af_corr_block2.tomoya', tomoya_whole_brain_af_corr_block2)
+np.save('data/tomoya_whole_brain_af_pred_block2.tomoya', tomoya_whole_brain_af_pred_block2)
 
-whole_brain_af_corr_400, whole_brain_af_rsa_corr_400, whole_brain_af_predicition_accu_400 = run_whole_brain_af(Schaefer400, subs, tasks, tomoya_Schaeffer400_cortical_ts, tomoya_cortical_beta_matrix, "FIRmodel_MNI_stats_rs.nii.gz", "FIRmodel_errts_rs.nii.gz", "FIRmodel_MNI_stats_rs.nii.gz")
-np.save('data/whole_brain_af_corr_400.tomoya', whole_brain_af_corr_400)
-np.save('data/whole_brain_af_rsa_corr_400.tomoya', whole_brain_af_rsa_corr_400)
-np.save('data/whole_brain_af_predicition_accu_400.tomoya', whole_brain_af_predicition_accu_400)
+tomoya_cortical_betas_reliability = np.load("data/tomoya_cortical_betas_reliability.npy")
+tomoya_whole_brain_af_noise_ceiling = np.zeros((6,102,102)) 
+for s in np.arange(6):
+	for t in np.arange(102):
+		for r in np.arange(102):
+			tomoya_whole_brain_af_noise_ceiling[s,r,t] = np.sqrt(np.corrcoef(tomoya_whole_brain_af_pred_block1[s,t,:,r], tomoya_whole_brain_af_pred_block2[s,t,:,r])[0,1] *tomoya_cortical_betas_reliability[s,t])
+
+tomoya_whole_brain_af_corr_normed = 0.5*(tomoya_whole_brain_af_corr_block1 / tomoya_whole_brain_af_noise_ceiling)+0.5*(tomoya_whole_brain_af_corr_block2 / tomoya_whole_brain_af_noise_ceiling)
+tomoya_whole_brain_af_corr = 0.5*(tomoya_whole_brain_af_corr_block1) + 0.5*tomoya_whole_brain_af_corr_block2
+np.save("data/tomoya_whole_brain_af_corr_normed", tomoya_whole_brain_af_corr_normed)
+np.save("data/tomoya_whole_brain_af_corr", tomoya_whole_brain_af_corr)
 
 Schaefer100 = nib.load('data/Schaefer100+BG_2mm.nii.gz')
-whole_brain_af_corr_100, whole_brain_af_rsa_corr_100, whole_brain_af_predicition_accu_100 = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts, tomoya_cortical_beta_matrix, "FIRmodel_MNI_stats_rs.nii.gz", "FIRmodel_errts_rs.nii.gz", "FIRmodel_MNI_stats_rs.nii.gz")
-np.save('data/whole_brain_af_corr_100.tomoya', whole_brain_af_corr_100)
-np.save('data/whole_brain_af_rsa_corr_100.tomoya', whole_brain_af_rsa_corr_100)
-np.save('data/whole_brain_af_predicition_accu_100.tomoya', whole_brain_af_predicition_accu_100)
+tomoya_whole_brain_af_corr_100_block1, tomoya_whole_brain_af_rsa_corr_100_block1, tomoya_whole_brain_af_predicition_accu_100_block1, tomoya_whole_brain_af_pred_100_block1  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+tomoya_whole_brain_af_corr_100_block2, tomoya_whole_brain_af_rsa_corr_100_block2, tomoya_whole_brain_af_predicition_accu_100_block2, tomoya_whole_brain_af_pred_100_block2  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+np.save('data/tomoya_whole_brain_af_corr_100_block1.tomoya', tomoya_whole_brain_af_corr_100_block1)
+np.save('data/tomoya_whole_brain_af_pred_100_block1.tomoya', tomoya_whole_brain_af_pred_100_block1)
+np.save('data/tomoya_whole_brain_af_corr_100_block2.tomoya', tomoya_whole_brain_af_corr_100_block2)
+np.save('data/tomoya_whole_brain_af_pred_100_block2.tomoya', tomoya_whole_brain_af_pred_100_block2)
+
+tomoya_whole_brain_100_af_noise_ceiling = np.zeros((6,103,102)) 
+for s in np.arange(6):
+	for t in np.arange(102):
+		for r in np.arange(103):
+			tomoya_whole_brain_100_af_noise_ceiling[s,r,t] = np.sqrt(abs(np.corrcoef(tomoya_whole_brain_af_pred_100_block1[s,t,:,r], tomoya_whole_brain_af_pred_100_block2[s,t,:,r])[0,1]*tomoya_cortical_betas_reliability[s,t]))
+
+tomoya_whole_brain_100_af_corr_normed = 0.5*(tomoya_whole_brain_af_corr_100_block1 / tomoya_whole_brain_100_af_noise_ceiling)+0.5*(tomoya_whole_brain_af_corr_100_block2 / tomoya_whole_brain_100_af_noise_ceiling)
+tomoya_whole_brain_100_af_corr = 0.5*(tomoya_whole_brain_af_corr_100_block1) + 0.5*tomoya_whole_brain_af_corr_100_block2
+np.save("data/tomoya_whole_brain_100_af_corr_normed", tomoya_whole_brain_100_af_corr_normed)
+np.save("data/tomoya_whole_brain_100_af_corr", tomoya_whole_brain_100_af_corr)
 
 
 ################################################
 # Make df, plot AF results
 af_results = read_object('data/af_results')
 af_simulation_results = read_object('data/af_simulation_results')
-whole_brain_af_corr_100 = np.load('data/whole_brain_af_corr_100.mdtb.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_corr = np.load('data/whole_brain_af_corr_CerebrA.mdtb.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
+whole_brain_af_corr_100 = np.load('data/mdtb_whole_brain_100_af_corr_normed.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
+whole_brain_af_corr = np.load('data/mdtb_whole_brain_af_corr_normed.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
 
 af_df = pd.DataFrame()
-mdtb_activity_flow = af_results['mdtb_activity_flow']
+mdtb_activity_flow = af_results['mdtb_activity_flow_normalized']
 i=0
 for t, task in enumerate(MDTB_TASKS):
 	for sub in np.arange(mdtb_activity_flow.shape[1]):
@@ -994,7 +1008,7 @@ for t, task in enumerate(MDTB_TASKS):
 		af_df.loc[i, 'Region'] = 'Null Model' 
 		i=i+1
 
-af_uniform = np.load('data/mdtb_activity_flow_uniform.npy')
+af_uniform = af_results['mdtb_activity_flow_uniform']
 for t, task in enumerate(MDTB_TASKS):
 	for sub in np.arange(mdtb_activity_flow.shape[1]):
 		af_df.loc[i,'Dataset'] = 'MDTB'
@@ -1004,10 +1018,20 @@ for t, task in enumerate(MDTB_TASKS):
 		af_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
 		i=i+1
 
+af_ave_null= af_results['mdtb_activity_flow_averaged_null']
+for t, task in enumerate(MDTB_TASKS):
+	for sub in np.arange(mdtb_activity_flow.shape[1]):
+		af_df.loc[i,'Dataset'] = 'MDTB'
+		af_df.loc[i,'Task'] = task
+		af_df.loc[i,'Subject'] = str(sub)
+		af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = af_ave_null[t,sub]
+		af_df.loc[i, 'Region'] = 'Averaged Pattern Model' 
+		i=i+1
+
 #now compile tomoya
-tomoya_activity_flow = af_results['tomoya_activity_flow']
-whole_brain_af_corr_100 = np.load('data/whole_brain_af_corr_100.tomoya.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_corr = np.load('data/whole_brain_af_corr_CerebrA.tomoya.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
+tomoya_activity_flow = af_results['tomoya_activity_flow_normalized']
+whole_brain_af_corr_100 = np.load('data/tomoya_whole_brain_100_af_corr_normed.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
+whole_brain_af_corr = np.load('data/tomoya_whole_brain_af_corr_normed.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
 
 for t, task in enumerate(TOMOYA_TASKS):
 	for sub in np.arange(tomoya_activity_flow.shape[1]):
@@ -1076,7 +1100,7 @@ for t, task in enumerate(TOMOYA_TASKS):
 		af_df.loc[i, 'Region'] = 'Null Model' 
 		i=i+1
 
-af_uniform = np.load('data/tomoya_activity_flow_uniform.npy')
+af_uniform = af_results['tomoya_activity_flow_uniform'] #np.load('data/tomoya_activity_flow_uniform.npy')
 for t, task in enumerate(TOMOYA_TASKS):
 	for sub in np.arange(tomoya_activity_flow.shape[1]):
 		af_df.loc[i,'Dataset'] = 'N&N'
@@ -1085,6 +1109,17 @@ for t, task in enumerate(TOMOYA_TASKS):
 		af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = af_uniform[t,sub]
 		af_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
 		i=i+1
+
+af_ave_null= af_results['tomoya_activity_flow_averaged_null']
+for t, task in enumerate(TOMOYA_TASKS):
+	for sub in np.arange(tomoya_activity_flow.shape[1]):
+		af_df.loc[i,'Dataset'] = 'N&N'
+		af_df.loc[i,'Task'] = task
+		af_df.loc[i,'Subject'] = str(sub)
+		af_df.loc[i, 'Predicted vs. Observed Evoked Responses'] = af_ave_null[t,sub]
+		af_df.loc[i, 'Region'] = 'Averaged Pattern Model' 
+		i=i+1
+
 
 auditory = ["TimeMov","Rhythm","Harmony","TimeSound","CountTone","SoundRight","SoundLeft","RateDisgustSound","RateNoisy","RateBeautySound","SoundPlace","DailySound","EmotionVoice","MusicCategory","ForeignListen","LanguageSound","AnimalVoice", "FeedbackPos"]
 introspection = ["LetterFluency","CategoryFluency","RecallKnowledge","ImagineMove","ImagineIf","RecallFace","ImaginePlace","RecallPast","ImagineFuture"]
@@ -1107,251 +1142,41 @@ for x in np.arange(len(af_df)):
 		af_df.loc[x, 'Group'] = 'Visual'
 
 af_df.to_csv('data/af_df.csv')
-sns.catplot(y="Region", x="Predicted vs. Observed Evoked Responses", kind="bar", data=af_df, hue='Dataset',
-order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SM','Limbic','DA','CO','DF','FP', 'Null Model', 'Uniformed Evoked Model'])
+sns.catplot(y="Region", x="Predicted vs. Observed Evoked Responses", kind="bar", data=af_df, hue='Dataset', errorbar='se')
+order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SM','Limbic','DA','CO','DF','FP', 'Null Model', 'Uniformed Evoked Model', 'Averaged Pattern Model'])
 fig.tight_layout() 
 plt.savefig("/home/kahwang/RDSS/tmp/af_flow.png", bbox_inches='tight')
 
-
-### do some stats
-mdtb_df = af_df.loc[(af_df['Dataset']=='MDTB') & (af_df['Region']=='Thalamus')]
-tomoya_df = af_df.loc[(af_df['Dataset']=='N&N') & (af_df['Region']=='Thalamus')]
-
-fig.set_size_inches([6,1])
-ax = sns.catplot(y="Task", x="Predicted vs. Observed Evoked Responses", kind="bar", data=mdtb_df, color='#186D9C')
-ax.ax.set_xlabel("")
-ax.ax.set_ylabel("")
-fig.tight_layout() 
-plt.savefig("images/af_flow_mdtb.png", bbox_inches='tight')
-
-sns.catplot(y="Group", x="Predicted vs. Observed Evoked Responses", kind="bar", data=tomoya_df, color='#C3881F')
-fig.tight_layout() 
-plt.savefig("images/af_flow_tomoya.png", bbox_inches='tight')
-
 ## write cifti surface file #Figure 3D
-template = nib.load('data/Schaefer2018_400Parcels_7Networks_order.dscalar.nii')
-tmp_data = template.get_fdata() #do operations here
-new_data = np.zeros(tmp_data.shape)
-whole_brain_af_corr_400 = np.load('data/whole_brain_af_corr_400.mdtb.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-
-for idx in np.arange(400):
-	whole_brain_af_corr_400.mean(axis=(0,2))
-	new_data[tmp_data==int(idx+1)] = whole_brain_af_corr_400.mean(axis=(0,2))[idx]
-
-new_cii = nib.cifti2.Cifti2Image(new_data, template.header)
-new_cii.to_filename('data/af.400.dscalar.nii')
-
-
-#######################################################################################################
-##### Figure 4, RSA
-############################################################################################################
-plt.figure()
-ax = sns.heatmap(np.corrcoef(mdtb_cortical_betas.mean(axis=2).T))
-plt.axis('off')
-plt.savefig("images/observed_rsa.png", bbox_inches='tight')
-
-mdtb_activity_flow, mdtb_rsa_similarity, mdtb_pred_accu, pred_rsa = activity_flow_subject(mdtb_fc, mdtb_beta_matrix, mdtb_cortical_betas, MDTB_TASKS, return_rsa = True)
-plt.figure()
-sns.heatmap(np.array(pred_rsa).mean(axis=0))
-plt.axis('off')
-plt.savefig("images/predicted_rsa.png", bbox_inches='tight')
-
-af_results = read_object('data/af_results')
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.mdtb.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_rsa_corr_CerebrA = np.load('data//whole_brain_af_rsa_corr_CerebrA.mdtb.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
-
-rsa_df = pd.DataFrame()
-mdtb_rsa_similarity = af_results['mdtb_rsa_similarity']
-i=0
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = mdtb_rsa_similarity[sub]
-	rsa_df.loc[i, 'Region'] = 'Thalamus' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 100]
-	rsa_df.loc[i, 'Region'] = 'Caudate' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 101]
-	rsa_df.loc[i, 'Region'] = 'Putamen' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 102]
-	rsa_df.loc[i, 'Region'] = 'Pallidus' 
-	i=i+1
-
-roi_df = pd.read_csv('data/100rois.csv')
-old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
-			rsa_df.loc[i,'Dataset'] = 'MDTB'
-			rsa_df.loc[i,'Subject'] = str(sub)
-			rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0]].mean()
-			rsa_df.loc[i, 'Region'] = net 
-			i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_CerebrA[sub, [47,98]].mean()
-		rsa_df.loc[i, 'Region'] = 'Hippocampus' 
-		i=i+1
-
-af_null = af_results['mdtb_rsa_similarity_null'].mean(axis=0)
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_null[sub]
-		rsa_df.loc[i, 'Region'] = 'Null Model' 
-		i=i+1
-
-af_uniform = mdtb_rsa_similarity_uniform
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_uniform[sub]
-		rsa_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
-		i=i+1
-
-#now compile tomoya
-tomoya_rsa_similarity = af_results['tomoya_rsa_similarity']
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.tomoya.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_corr_CerebrA = np.load('data/whole_brain_af_corr_CerebrA.tomoya.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = tomoya_rsa_similarity[sub] +0.05
-	rsa_df.loc[i, 'Region'] = 'Thalamus' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 100]
-	rsa_df.loc[i, 'Region'] = 'Caudate' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 101]
-	rsa_df.loc[i, 'Region'] = 'Putamen' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 102]
-	rsa_df.loc[i, 'Region'] = 'Pallidus' 
-	i=i+1
-
-roi_df = pd.read_csv('data/100rois.csv')
-old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	for n, net in enumerate(['Vis', 'SM', 'DA', 'CO', 'Limbic', 'FP', 'DF']):
-		rsa_df.loc[i,'Dataset'] = 'N&N'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,np.where(roi_df['ROI Name'].str.contains(old_names[n]))[0]].mean()
-		rsa_df.loc[i, 'Region'] = net 
-		i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Task'] = task
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_corr_CerebrA[sub, [47,98]].mean()
-	rsa_df.loc[i, 'Region'] = 'Hippocampus' 
-	i=i+1
-
-af_null = af_results['tomoya_rsa_similarity_null'].mean(axis=0)
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_null[sub]
-	rsa_df.loc[i, 'Region'] = 'Null Model' 
-	i=i+1
-
-af_uniform = tomoya_rsa_similarity_uniform
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_uniform[sub]
-	rsa_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
-	i=i+1
-
-auditory = ["TimeMov","Rhythm","Harmony","TimeSound","CountTone","SoundRight","SoundLeft","RateDisgustSound","RateNoisy","RateBeautySound","SoundPlace","DailySound","EmotionVoice","MusicCategory","ForeignListen","LanguageSound","AnimalVoice", "FeedbackPos"]
-introspection = ["LetterFluency","CategoryFluency","RecallKnowledge","ImagineMove","ImagineIf","RecallFace","ImaginePlace","RecallPast","ImagineFuture"]
-motor = ["RateConfidence","RateSleepy","RateTired","EyeMoveHard","EyeMoveEasy","EyeBlink","RestClose","RestOpen","PressOrdHard","PressOrdEasy","PressLR","PressLeft","PressRight"]
-memory = ["MemoryNameHard","MemoryNameEasy","MatchNameHard","MatchNameEasy","RelationLogic","CountDot","MatchLetter","MemoryLetter","MatchDigit","MemoryDigit","CalcHard","CalcEasy"]
-language = ["RecallTaskHard","RecallTaskEasy","DetectColor","Recipe","TimeValue","DecidePresent","ForeignReadQ","ForeignRead","MoralImpersonal","MoralPersonal","Sarcasm","Metaphor","ForeignListenQ","WordMeaning","RatePoem", "PropLogic"]
-visual = ["EmotionFace","Flag","DomesiticName","WorldName","DomesiticPlace","WorldPlace","StateMap","MapIcon","TrafficSign","MirrorImage","DailyPhoto","AnimalPhoto","RateBeautyPic","DecidePeople","ComparePeople","RateHappyPic","RateSexyPicM","DecideFood","RateDeliciousPic","RatePainfulPic","RateDisgustPic","RateSexyPicF","DecideShopping","DetectDifference","DetectTargetPic","CountryMap","Money","Clock","RateBeautyMov","DetectTargetMov","RateHappyMov","RateSexyMovF","RateSexyMovM","RateDeliciousMov","RatePainfulMov","RateDisgustMov"]
-groups = [visual, language, memory, motor, introspection, auditory]
-
-for x in np.arange(len(rsa_df)):
-	if rsa_df.loc[x, 'Task'] in auditory:
-		rsa_df.loc[x, 'Group'] = 'Auditory'
-	if rsa_df.loc[x, 'Task'] in introspection:
-		rsa_df.loc[x, 'Group'] = 'Introspection'
-	if rsa_df.loc[x, 'Task'] in motor:
-		rsa_df.loc[x, 'Group'] = 'Motor'
-	if rsa_df.loc[x, 'Task'] in language:
-		rsa_df.loc[x, 'Group'] = 'Language'
-	if rsa_df.loc[x, 'Task'] in visual:
-		rsa_df.loc[x, 'Group'] = 'Visual'
-
-rsa_df.to_csv('data/rsa_df.csv')
-sns.catplot(y="Region", x="Predicted vs. Observed RDM", kind="bar", data=rsa_df, hue='Dataset',
-order = ['Thalamus', 'Caudate','Putamen','Pallidus','Hippocampus', 'Vis','SM','Limbic','DA','CO','DF','FP', 'Null Model', 'Uniformed Evoked Model'])
-fig.tight_layout() 
-plt.savefig("/home/kahwang/RDSS/tmp/af_rsa.png", bbox_inches='tight')
-
-# run some tests
-ttest_rel(af_results['mdtb_rsa_similarity_null'].mean(axis=0), af_results['mdtb_rsa_similarity'])
-ttest_rel(mdtb_rsa_similarity_uniform, af_results['mdtb_rsa_similarity'])
-ttest_rel(af_results['tomoya_rsa_similarity_null'].mean(axis=0), af_results['tomoya_rsa_similarity'])
-ttest_rel(tomoya_rsa_similarity_uniform, af_results['tomoya_rsa_similarity'])
-
-
-## write cifti surface file for plotting
 template = nib.load('data/Schaefer2018_100Parcels_7Networks_order.dscalar.nii')
 tmp_data = template.get_fdata() #do operations here
 new_data = np.zeros(tmp_data.shape)
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.mdtb.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
+whole_brain_af_corr_100 = np.load('data/mdtb_whole_brain_100_af_corr_normed.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
 
 for idx in np.arange(100):
-	new_data[tmp_data==int(idx+1)] = whole_brain_af_rsa_corr_100.mean(axis=(0))[idx]
+	whole_brain_af_corr_100.mean(axis=(0,2))
+	new_data[tmp_data==int(idx+1)] = np.nanmean(whole_brain_af_corr_100, axis=(0,2))[idx]
 
 new_cii = nib.cifti2.Cifti2Image(new_data, template.header)
-new_cii.to_filename('data/rsa.100.dscalar.nii')
+new_cii.to_filename('data/af.mdtb.100.dscalar.nii')
 
+tmp_data = template.get_fdata() #do operations here
 new_data = np.zeros(tmp_data.shape)
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.tomoya.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
+whole_brain_af_corr_100 = np.load('data/tomoya_whole_brain_100_af_corr_normed.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
 
 for idx in np.arange(100):
-	new_data[tmp_data==int(idx+1)] = whole_brain_af_rsa_corr_100.mean(axis=(0))[idx]
+	whole_brain_af_corr_100.mean(axis=(0,2))
+	new_data[tmp_data==int(idx+1)] = np.nanmean(whole_brain_af_corr_100, axis=(0,2))[idx]
 
 new_cii = nib.cifti2.Cifti2Image(new_data, template.header)
-new_cii.to_filename('data/rsa.100.tomoya.dscalar.nii')
-
+new_cii.to_filename('data/af.tomoya.100.dscalar.nii')
 
 #######################################################################################################
 ##### Simulate lesion effect on activity flow and RSA, Figure 5-6
 ############################################################################################################
 af_results = read_object('data/af_results')
-mdtb_activity_flow = af_results['mdtb_activity_flow']
-tomoya_activity_flow = af_results['tomoya_activity_flow']
+mdtb_activity_flow = af_results['mdtb_activity_flow_normalized']
+tomoya_activity_flow = af_results['tomoya_activity_flow_normalized']
 mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
 tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
 mdtb_cortical_betas = np.load('data/mdtb_cortical_betas.npy')
@@ -1406,33 +1231,6 @@ sns.lineplot(x='Lesioned voxels\' hub percentile', y='Reduction (%) in Evokd Pat
 fig.tight_layout() 
 plt.savefig("images/af_flow_lesion.png", bbox_inches='tight')
 
-##plot lesion simulation of %reduction in rdm similarity
-ii=0
-lesion_rsa_df = pd.DataFrame()
-for sub in np.arange(mdtb_activity_flow_rsa_thresh.shape[1]):
-	for r in np.arange(80):
-		lesion_rsa_df.loc[ii,'Dataset'] = 'MDTB'
-		lesion_rsa_df.loc[ii,'Task'] = task
-		lesion_rsa_df.loc[ii,'Subject'] = str(sub)
-		lesion_rsa_df.loc[ii, 'Reduction (%) in RDM similarity'] = (mdtb_activity_flow_rsa_thresh[r, sub] -0.3414) / 0.3414 *100
-		lesion_rsa_df.loc[ii, 'Lesioned voxels\' hub percentile'] = 80 - r
-		ii = ii+1
-
-for sub in np.arange(tomoya_activity_flow_rsa_thresh.shape[1]):
-	for r in np.arange(80):
-		lesion_rsa_df.loc[ii,'Dataset'] = 'N&N'
-		lesion_rsa_df.loc[ii,'Task'] = task
-		lesion_rsa_df.loc[ii,'Subject'] = str(sub)
-		lesion_rsa_df.loc[ii, 'Reduction (%) in RDM similarity'] = (tomoya_activity_flow_rsa_thresh[r, sub] -0.1765) / 0.1765 *100
-		lesion_rsa_df.loc[ii, 'Lesioned voxels\' hub percentile'] = 80 - r
-		ii = ii+1
-lesion_rsa_df.to_csv('data/lesion_rsa.csv')
-
-sns.lineplot(x='Lesioned voxels\' hub percentile', y='Reduction (%) in RDM similarity', hue='Dataset', data = lesion_rsa_df)
-fig.tight_layout() 
-plt.savefig("images/rsa_lesion.png", bbox_inches='tight')
-
-
 ## now map % reduction in evoked pattern similarity and RDM in volumne space
 mPC = mdtb_taskPC.mean(axis=0) #(shape sub by th vox)
 dpc = np.zeros(2445)
@@ -1458,29 +1256,6 @@ tomoya_dpc_img = mdtb_masker.inverse_transform(dpc)
 tomoya_dpc_img.to_filename("images/tomoya_dpc_img.nii.gz")
 plot_tha(tomoya_dpc_img, -10, 0, "Blues_r", "images/tomoya_dpc.png")
 
-#rsa
-dpc = np.zeros(2445)
-F = (mdtb_activity_flow_rsa_thresh.mean(axis=(1))-.3414) / .3414* 100
-for thres in np.arange(1,81):
-	minv = np.percentile(mPC,thres)
-	maxv = np.percentile(mPC,thres+20)
-	dpc[((mPC <= maxv) & (mPC >= minv))] = F[thres*-1]
-mdtb_drsa_img = mdtb_masker.inverse_transform(dpc)
-mdtb_drsa = dpc
-mdtb_drsa_img.to_filename("images/mdtb_drsa_img.nii.gz")
-plot_tha(mdtb_drsa_img, -40, 0, "Blues_r", "images/drsa.png")
-
-dpc = np.zeros(2445)
-F = (tomoya_activity_flow_rsa_thresh.mean(axis=(1))-.1765) / .1765* 100
-for thres in np.arange(1,81):
-	minv = np.percentile(tPC,thres)
-	maxv = np.percentile(tPC,thres+20)
-	dpc[((tPC <= maxv) & (tPC >= minv))] = F[thres*-1]
-tomoya_drsa_img = mdtb_masker.inverse_transform(dpc)
-tomoya_drsa = dpc
-tomoya_drsa_img.to_filename("images/tomoya_drsa_img.nii.gz")
-plot_tha(tomoya_drsa_img, -30, 0, "Blues_r", "images/tomoya_drsa.png")
-
 ### linear model test relationship between reduction and percentile
 df = lesion_df[lesion_df['Dataset']=='MDTB'].groupby(["Subject", "Lesioned voxels' hub percentile"]).mean().reset_index()
 df['Y'] =  df["Reduction (%) in Evokd Pattern Correlation"]
@@ -1498,27 +1273,9 @@ import statsmodels.formula.api as smf
 mod = smf.ols(formula='Y ~ X', data=df)
 print(mod.fit().summary())
 
-df = lesion_rsa_df[lesion_rsa_df['Dataset']=='MDTB'].groupby(["Subject", "Lesioned voxels' hub percentile"]).mean().reset_index()
-df['Y'] =  df["Reduction (%) in RDM similarity"]
-df['X'] =  df["Lesioned voxels' hub percentile"]
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-mod = smf.ols(formula='Y ~ X', data=df)
-print(mod.fit().summary())
-
-df = lesion_rsa_df[lesion_rsa_df['Dataset']=='N&N'].groupby(["Subject", "Lesioned voxels' hub percentile"]).mean().reset_index()
-df['Y'] =  df["Reduction (%) in RDM similarity"]
-df['X'] =  df["Lesioned voxels' hub percentile"]
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-mod = smf.ols(formula='Y ~ X', data=df)
-print(mod.fit().summary())
-
-
 ## project simulated lesion effects onto cortex via af
-cortex_dpc = np.dot(mdtb_dpc, mdtb_fc.data.mean(axis=2))
-make_cii(cortex_dpc, "cortex_dpc.dscalar.nii")
-
+# cortex_dpc = np.dot(mdtb_dpc, mdtb_fc.data.mean(axis=2))
+# make_cii(cortex_dpc, "cortex_dpc.dscalar.nii")
 
 #######################################################################################################
 ##### Compare simulated effects to real lesions, Figure 6
@@ -1603,8 +1360,6 @@ kstest(a,b)
 a = rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='MM')]['% reduction in RDM similarity'].values
 b =rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='SM')]['% reduction in RDM similarity'].values
 kstest(a,b)
-
-
 
 
 ###############################################################################################################
@@ -1896,166 +1651,4 @@ for x in np.arange(len(af_df)):
 		af_df.loc[x, 'Group'] = 'Visual'
 
 af_df.groupby(['Dataset','Task', 'Region']).mean().reset_index().to_csv('data/Fig3_supplement.csv')
-
-################
-#### RDM####
-####################
-af_results = read_object('data/af_results')
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.mdtb.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_rsa_corr_CerebrA = np.load('data//whole_brain_af_rsa_corr_CerebrA.mdtb.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
-
-rsa_df = pd.DataFrame()
-mdtb_rsa_similarity = af_results['mdtb_rsa_similarity']
-i=0
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = mdtb_rsa_similarity[sub]
-	rsa_df.loc[i, 'Region'] = 'Thalamus' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 100]
-	rsa_df.loc[i, 'Region'] = 'Caudate' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 101]
-	rsa_df.loc[i, 'Region'] = 'Putamen' 
-	i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'MDTB'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 102]
-	rsa_df.loc[i, 'Region'] = 'Pallidus' 
-	i=i+1
-
-roi_df = pd.read_csv('data/100rois.csv')
-old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		for n, net in enumerate(np.arange(100)):
-			rsa_df.loc[i,'Dataset'] = 'MDTB'
-			rsa_df.loc[i,'Subject'] = str(sub)
-			rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,n]
-			rsa_df.loc[i, 'Region'] = roi_df.loc[n,'ROI Name'] 
-			i=i+1
-
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_CerebrA[sub, [47,98]].mean()
-		rsa_df.loc[i, 'Region'] = 'Hippocampus' 
-		i=i+1
-
-af_null = af_results['mdtb_rsa_similarity_null'].mean(axis=0)
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_null[sub]
-		rsa_df.loc[i, 'Region'] = 'Null Model' 
-		i=i+1
-
-af_uniform = mdtb_rsa_similarity_uniform
-for sub in np.arange(mdtb_rsa_similarity.shape[0]):
-		rsa_df.loc[i,'Dataset'] = 'MDTB'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_uniform[sub]
-		rsa_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
-		i=i+1
-
-#now compile tomoya
-tomoya_rsa_similarity = af_results['tomoya_rsa_similarity']
-whole_brain_af_rsa_corr_100 = np.load('data/whole_brain_af_rsa_corr_100.tomoya.npy') #101 caudate, 102 putamen, 103 pallidum, combine to check size
-whole_brain_af_corr_CerebrA = np.load('data/whole_brain_af_corr_CerebrA.tomoya.npy') #vermal lobules 1-V 50/101, Vermal lobules VI-Vii 2/53, Vermal Lobules Viii-X 20/71, hippocampus 48/99
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = tomoya_rsa_similarity[sub] +0.05
-	rsa_df.loc[i, 'Region'] = 'Thalamus' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 100]
-	rsa_df.loc[i, 'Region'] = 'Caudate' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 101]
-	rsa_df.loc[i, 'Region'] = 'Putamen' 
-	i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub, 102]
-	rsa_df.loc[i, 'Region'] = 'Pallidus' 
-	i=i+1
-
-roi_df = pd.read_csv('data/100rois.csv')
-old_names = ['Vis', 'SomMot', 'DorsAttn', 'SalVentAttn', 'Limbic', 'Cont', 'Default']
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	for n, net in enumerate(np.arange(100)):
-		rsa_df.loc[i,'Dataset'] = 'N&N'
-		rsa_df.loc[i,'Subject'] = str(sub)
-		rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_rsa_corr_100[sub,n]
-		rsa_df.loc[i, 'Region'] = roi_df.loc[n,'ROI Name']  
-		i=i+1
-
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Task'] = task
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = whole_brain_af_corr_CerebrA[sub, [47,98]].mean()
-	rsa_df.loc[i, 'Region'] = 'Hippocampus' 
-	i=i+1
-
-af_null = af_results['tomoya_rsa_similarity_null'].mean(axis=0)
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_null[sub]
-	rsa_df.loc[i, 'Region'] = 'Null Model' 
-	i=i+1
-
-af_uniform = tomoya_rsa_similarity_uniform
-for sub in np.arange(tomoya_rsa_similarity.shape[0]):
-	rsa_df.loc[i,'Dataset'] = 'N&N'
-	rsa_df.loc[i,'Subject'] = str(sub)
-	rsa_df.loc[i, 'Predicted vs. Observed RDM'] = af_uniform[sub]
-	rsa_df.loc[i, 'Region'] = 'Uniformed Evoked Model' 
-	i=i+1
-
-auditory = ["TimeMov","Rhythm","Harmony","TimeSound","CountTone","SoundRight","SoundLeft","RateDisgustSound","RateNoisy","RateBeautySound","SoundPlace","DailySound","EmotionVoice","MusicCategory","ForeignListen","LanguageSound","AnimalVoice", "FeedbackPos"]
-introspection = ["LetterFluency","CategoryFluency","RecallKnowledge","ImagineMove","ImagineIf","RecallFace","ImaginePlace","RecallPast","ImagineFuture"]
-motor = ["RateConfidence","RateSleepy","RateTired","EyeMoveHard","EyeMoveEasy","EyeBlink","RestClose","RestOpen","PressOrdHard","PressOrdEasy","PressLR","PressLeft","PressRight"]
-memory = ["MemoryNameHard","MemoryNameEasy","MatchNameHard","MatchNameEasy","RelationLogic","CountDot","MatchLetter","MemoryLetter","MatchDigit","MemoryDigit","CalcHard","CalcEasy"]
-language = ["RecallTaskHard","RecallTaskEasy","DetectColor","Recipe","TimeValue","DecidePresent","ForeignReadQ","ForeignRead","MoralImpersonal","MoralPersonal","Sarcasm","Metaphor","ForeignListenQ","WordMeaning","RatePoem", "PropLogic"]
-visual = ["EmotionFace","Flag","DomesiticName","WorldName","DomesiticPlace","WorldPlace","StateMap","MapIcon","TrafficSign","MirrorImage","DailyPhoto","AnimalPhoto","RateBeautyPic","DecidePeople","ComparePeople","RateHappyPic","RateSexyPicM","DecideFood","RateDeliciousPic","RatePainfulPic","RateDisgustPic","RateSexyPicF","DecideShopping","DetectDifference","DetectTargetPic","CountryMap","Money","Clock","RateBeautyMov","DetectTargetMov","RateHappyMov","RateSexyMovF","RateSexyMovM","RateDeliciousMov","RatePainfulMov","RateDisgustMov"]
-groups = [visual, language, memory, motor, introspection, auditory]
-
-for x in np.arange(len(rsa_df)):
-	if rsa_df.loc[x, 'Task'] in auditory:
-		rsa_df.loc[x, 'Group'] = 'Auditory'
-	if rsa_df.loc[x, 'Task'] in introspection:
-		rsa_df.loc[x, 'Group'] = 'Introspection'
-	if rsa_df.loc[x, 'Task'] in motor:
-		rsa_df.loc[x, 'Group'] = 'Motor'
-	if rsa_df.loc[x, 'Task'] in language:
-		rsa_df.loc[x, 'Group'] = 'Language'
-	if rsa_df.loc[x, 'Task'] in visual:
-		rsa_df.loc[x, 'Group'] = 'Visual'
-
-rsa_df.groupby(['Dataset','Region']).mean().reset_index().to_csv('data/Fig4_supplement.csv')
-
-
 
