@@ -473,7 +473,7 @@ for s in np.arange(tomoya_beta_matrix.shape[2]):
 	for i in np.arange(10):	
 		tomoya_pca_Ws[:,i, s] = abs(comps[:,i])
 	for i in np.arange(11,21):	
-		tomoya_pca_WxV_l[:,s] = tomoya_pca_WxV_l[:,s] + abs(comps[:,i])*var[i] #lower PCs.
+		tomoya_pca_WxV_l[:,s] = tomoya_pca_WxV_l[:,s] + abs(comps[:,i]) #lower PCs.
 
 tomoya_pca_weight = tomoya_masker.inverse_transform(np.mean(tomoya_pca_WxV, axis=1))  #average across subjects
 tomoya_pca_w = tomoya_masker.inverse_transform(np.mean(tomoya_pca_W, axis=1)) 
@@ -523,7 +523,7 @@ for s in np.arange(mdtb_beta_matrix.shape[2]):
 	for i in np.arange(10):	
 		mdtb_pca_Ws[:,i, s] = abs(comps[:,i])
 	for i in np.arange(10,20):	
-		mdtb_pca_WxV_l[:,s] = mdtb_pca_WxV_l[:,s] + abs(comps[:,i])*var[i]
+		mdtb_pca_WxV_l[:,s] = mdtb_pca_WxV_l[:,s] + abs(comps[:,i])
 
 mdtb_pca_weight = mdtb_masker.inverse_transform(np.mean(mdtb_pca_WxV, axis=1)) #average across subjects
 mdtb_pca_w = mdtb_masker.inverse_transform(np.mean(mdtb_pca_W, axis=1))
@@ -566,6 +566,8 @@ fig.set_size_inches([4,4])
 fig.tight_layout()
 fig.savefig("/home/kahwang/RDSS/tmp/mdtbweight.png")
 sns.set_context('paper', font_scale=1.5)
+
+ave_comps, ave_w, ave_var = run_pca(tomoya_beta_matrix.mean(axis=2), tomoya_dir_tree, 'tomoya_ave_subj', TOMOYA_TASKS, masker=tomoya_masker)
 
 ################################################################################################
 ######## Task hubs versus rsfc hubs, Figure 2
@@ -656,24 +658,161 @@ lb = np.percentile(np.nanmean(tomoya_fcpc, axis=0), 20)
 hb = np.percentile(np.nanmean(tomoya_fcpc, axis=0), 80)
 plot_tha(tomoya_fcpc_img, lb, hb, "autumn", "/home/kahwang/RDSS/tmp/tomoya_fcpc_img.png")
 
+np.corrcoef(mdtb_fcpc, tomoya_fcpc)
 
-### plot task PC by nuclei
+### project task PC onto cortex
+mdtb_cortex_pc1projection = zscore(np.dot(np.mean(mdtb_pca_W, axis=1), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_cortex_pc1projection, "mdtb_pca_WxV.dscalar.nii")
+tomoya_cortex_pc1projection = zscore(np.dot(np.mean(tomoya_pca_W, axis=1), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
+np.corrcoef(mdtb_cortex_pc1projection,tomoya_cortex_pc1projection )
+
+#########################################################################################################
+### plot task hub by nuclei and functional parcellations Figure 3
+############################################################################################################
+### plot by nuclei
+morel_mask = nib.load(masks.MOREL_PATH)
+plot_tha(morel_mask, 0, 20, "tab20b", "/home/kahwang/RDSS/tmp/test.png")
+
 morel_list = ['AN','VM','VL','MGN','MD','PuA','LP','IL','VA','Po','LGN','PuM','PuI','PuL','VP']
 morel_masker = input_data.NiftiLabelsMasker(masks.MOREL_PATH)
 mdtbtaskPC_df = pd.DataFrame()
-mdtbtaskPC_df['MDTB WxV'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/mdtb_pca_weight.nii.gz"))[0]
-mdtbtaskPC_df['N&N WxV'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoya_pca_weight.nii.gz"))[0]
-mdtbtaskPC_df['MDTB fcPC'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/mdtb_fcpc.nii.gz"))[0]
-mdtbtaskPC_df['N&N fcPC'] = morel_masker.fit_transform(nilearn.image.concat_imgs("images/tomoya_fcpc.nii.gz"))[0]
-mdtbtaskPC_df['Nucleus'] = morel_list
-mdtbtaskPC_df = pd.melt(mdtbtaskPC_df, id_vars=['Nucleus'], value_vars=['MDTB WxV', 'N&N WxV', 'MDTB fcPC', 'N&N fcPC'], value_name='value', var_name="Hub Metric")
-plt.figure()
-g =sns.barplot(data = mdtbtaskPC_df, x="Nucleus", y='value', hue="Hub Metric", order = ['AN','VM','MD','IL','VA','VL','VP','PuM','LGN','MGN' ],palette='Set2')
-fig = plt.gcf()
-fig.set_size_inches([8,4])
-fig.tight_layout()
-fig.savefig("/home/kahwang/RDSS/tmp/hubMorel.png")
+A=morel_masker.fit_transform(mdtb_masker.inverse_transform(mdtb_pca_W.T))
+i=0
+for s in np.arange(21):
+	for r in np.arange(15):
+		mdtbtaskPC_df.loc[i, 'Nucleus'] = morel_list[r]
+		mdtbtaskPC_df.loc[i, 'compW'] = A[s,r]
+		mdtbtaskPC_df.loc[i, 'Subj'] = s
+		i=i+1
 
+g =sns.barplot(data = mdtbtaskPC_df, x="Nucleus", y='compW', order = ['AN','VM','MD','IL','VA','VL','VP','PuM','LP','LGN','MGN' ], color='b', errorbar='se')
+fig = plt.gcf()
+fig.set_size_inches([6,2])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/mdtb_taskhub_morel.png")
+plt.close()
+
+tomoyataskPC_df = pd.DataFrame()
+A=morel_masker.fit_transform(tomoya_masker.inverse_transform(tomoya_pca_W.T))
+i=0
+for s in np.arange(6):
+	for r in np.arange(15):
+		tomoyataskPC_df.loc[i, 'Nucleus'] = morel_list[r]
+		tomoyataskPC_df.loc[i, 'compW'] = A[s,r]
+		tomoyataskPC_df.loc[i, 'Subj'] = s
+		i=i+1
+
+g =sns.barplot(data = tomoyataskPC_df, x="Nucleus", y='compW', order = ['AN','VM','MD','IL','VA','VL','VP','PuM','LP','LGN','MGN' ], color='b', errorbar='se')
+fig = plt.gcf()
+fig.set_size_inches([6,2])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/tomoya_taskhub_morel.png")
+plt.close()
+
+### plot task hub by functional parcel
+fparcelmask = nib.load("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+plot_tha(fparcelmask, 0, 7, "tab10", "/home/kahwang/RDSS/tmp/test.png")
+
+fparcel_masker = input_data.NiftiLabelsMasker("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+Networks = ['V', 'SM', 'DA', 'CO', 'Lm', 'FP', 'DF'] #LM is too small, only a handful of voxels so excluded eventually
+fparcel_masker.fit("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+
+mdtbtaskfparcel_df = pd.DataFrame() 
+A=fparcel_masker.fit_transform(fparcel_masker.inverse_transform(mdtb_pca_W.T))
+i=0
+for s in np.arange(21):
+	for r in np.arange(7):
+		mdtbtaskfparcel_df.loc[i, 'Network'] = Networks[r]
+		mdtbtaskfparcel_df.loc[i, 'compW'] = A[s,r]
+		mdtbtaskfparcel_df.loc[i, 'Subj'] = s
+		i=i+1
+
+sns.barplot(data = mdtbtaskfparcel_df, x="Network", y='compW', order = ['V', 'SM', 'DA', 'CO', 'FP', 'DF'],color='b', errorbar='se')
+fig = plt.gcf()
+fig.set_size_inches([3.5,2])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/mdtb_taskhub_funcparcel.png")
+plt.close()
+
+tomoyataskfparcel_df = pd.DataFrame() 
+A=fparcel_masker.fit_transform(fparcel_masker.inverse_transform(tomoya_pca_W.T))
+i=0
+for s in np.arange(6):
+	for r in np.arange(7):
+		tomoyataskfparcel_df.loc[i, 'Network'] = Networks[r]
+		tomoyataskfparcel_df.loc[i, 'compW'] = A[s,r]
+		tomoyataskfparcel_df.loc[i, 'Subj'] = s
+		i=i+1
+
+sns.barplot(data = tomoyataskfparcel_df, x="Network", y='compW', order = ['V', 'SM', 'DA', 'CO', 'FP', 'DF'],color='b', errorbar='se')
+fig = plt.gcf()
+fig.set_size_inches([3.5,2])
+fig.tight_layout()
+fig.savefig("/home/kahwang/RDSS/tmp/tomoya_taskhub_funcparcel.png")
+plt.close()
+
+### project different parts to different cortex
+		# morel_list={
+		# '1': 'AN',
+		# '2':'VM',
+		# '3':'VL',
+		# '4':'MGN',
+		# '5':'MD',
+		# '6':'PuA',
+		# '7':'LP',
+		# '8':'IL',
+		# '9':'VA',
+		# '10':'Po',
+		# '11':'LGN',
+		# '12':'PuM',
+		# '13':'PuI',
+		# '14':'PuL',
+		# '17':'VP'}
+
+mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
+tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
+morel_vec = mni_thalamus_masker.fit_transform(morel_mask)[0,:]
+funcparcel_vec = mni_thalamus_masker.fit_transform(fparcelmask)[0,:]
+mdtb_ave_compW = np.mean(mdtb_pca_W, axis=1) 
+tomoya_ave_compW = np.mean(tomoya_pca_W, axis=1) 
+
+mdtb_AN_compW_cortex_projection = zscore(np.dot(mdtb_ave_compW * (morel_vec==1), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_AN_compW_cortex_projection, "mdtb_AN_compW_cortex_projection.dscalar.nii")
+
+mdtb_MD_compW_cortex_projection = zscore(np.dot(mdtb_ave_compW * (morel_vec==5), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_MD_compW_cortex_projection, "mdtb_MD_compW_cortex_projection.dscalar.nii")
+
+mdtb_puM_compW_cortex_projection = zscore(np.dot(mdtb_ave_compW * (morel_vec==12), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_puM_compW_cortex_projection, "mdtb_puM_compW_cortex_projection.dscalar.nii")
+
+mdtb_DF_compW_cortex_projection = zscore(np.dot(mdtb_ave_compW * (funcparcel_vec==7), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_DF_compW_cortex_projection, "mdtb_DF_compW_cortex_projection.dscalar.nii")
+
+mdtb_FP_compW_cortex_projection = zscore(np.dot(mdtb_ave_compW * (funcparcel_vec==6), mdtb_fc.data.mean(axis=2)))
+make_cii(mdtb_FP_compW_cortex_projection, "mdtb_FP_compW_cortex_projection.dscalar.nii")
+
+tomoya_AN_compW_cortex_projection = zscore(np.dot(tomoya_ave_compW * (morel_vec==1), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_AN_compW_cortex_projection, "tomoya_AN_compW_cortex_projection.dscalar.nii")
+
+tomoya_MD_compW_cortex_projection = zscore(np.dot(tomoya_ave_compW * (morel_vec==5), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_MD_compW_cortex_projection, "tomoya_MD_compW_cortex_projection.dscalar.nii")
+
+tomoya_puM_compW_cortex_projection = zscore(np.dot(tomoya_ave_compW * (morel_vec==12), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_puM_compW_cortex_projection, "tomoya_puM_compW_cortex_projection.dscalar.nii")
+
+tomoya_DF_compW_cortex_projection = zscore(np.dot(tomoya_ave_compW * (funcparcel_vec==7), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_DF_compW_cortex_projection, "tomoya_DF_compW_cortex_projection.dscalar.nii")
+
+tomoya_FP_compW_cortex_projection = zscore(np.dot(tomoya_ave_compW * (funcparcel_vec==6), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_FP_compW_cortex_projection, "tomoya_FP_compW_cortex_projection.dscalar.nii")
+
+tomoya_cortex_pc1projection = zscore(np.dot(np.mean(tomoya_pca_W, axis=1), tomoya_fc.data.mean(axis=2)))
+make_cii(tomoya_cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
+np.corrcoef(mdtb_cortex_pc1projection,tomoya_cortex_pc1projection )
+
+
+### now test the spatial correltion between
 r=np.zeros(21)
 mdtb_fcpc[np.isnan(mdtb_fcpc)]=0
 for s in np.arange(21):
@@ -684,15 +823,9 @@ tomoya_fcpc[np.isnan(tomoya_fcpc)]=0
 for s in np.arange(6):
 	r[s]=np.corrcoef(tomoya_fcpc[s,:], tomoya_pca_WxV[:,s])[0,1]
 
-### project task PC onto cortex
-cortex_pc1projection = zscore(np.dot(np.mean(mdtb_pca_WxV, axis=1), mdtb_fc.data.mean(axis=2)))
-make_cii(cortex_pc1projection, "mdtb_pca_WxV.dscalar.nii")
-cortex_pc1projection = zscore(np.dot(np.mean(tomoya_pca_WxV, axis=1), tomoya_fc.data.mean(axis=2)))
-make_cii(cortex_pc1projection, "tomoya_pca_WxV.dscalar.nii")
-
 
 ################################################################################################
-######## Activity flow prediction, Figure 3 & 4
+######## Activity flow prediction, Figure 4
 ################################################################################################
 # activity flow analysis: predicited cortical evoked responses = thalamus evoke x thalamocortical FC, compare to observed cortical evoked responses
 mni_thalamus_masker = masks.binary_masker("/home/kahwang/bsh/ROIs/mni_atlas/MNI_thalamus_2mm.nii.gz")
@@ -701,8 +834,7 @@ tomoya_masker = mni_thalamus_masker.fit(nib.load('/mnt/nfs/lss/lss_kahwang_hpc/d
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
 
-## split half reliability for noise ceiling calculation: sqrt(rliability(AF_first_half, AF_second_half)*reliability(cortical_evoke_first_half, cortical_evoke_second_half))
-
+## split half reliability for noise ceiling calculation
 # first part, the reliability of cortical evoked results
 mdtb_beta_matrix_block1 = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
 mdtb_beta_matrix_block2 = glm.load_brik(mdtb_subjects, mdtb_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
@@ -734,16 +866,16 @@ tomoya_fc_block2 = np.load(tomoya_dir_tree.analysis_dir + "tomoya_rfcmats_block2
 
 mdtb_activity_flow_block1, mdtb_rsa_similarity_block1, mdtb_pred_accu_block1, mdtb_predicted_block1 = activity_flow_subject(mdtb_fc_block1, mdtb_beta_matrix_block1, mdtb_cortical_betas_block1, MDTB_TASKS, rs_indexer=None, return_pred = True)
 mdtb_predicted_block1 = zscore(np.array(mdtb_predicted_block1))
-mdtb_activity_flow_block2, mdtb_rsa_similarity_block2, mdtb_pred_accu_block2, mdtb_predicted_block2 = activity_flow_subject(mdtb_fc_block2, mdtb_beta_matrix_block2, mdtb_cortical_betas_block1, MDTB_TASKS, rs_indexer=None, return_pred = True)
+mdtb_activity_flow_block2, mdtb_rsa_similarity_block2, mdtb_pred_accu_block2, mdtb_predicted_block2 = activity_flow_subject(mdtb_fc_block2, mdtb_beta_matrix_block2, mdtb_cortical_betas_block2, MDTB_TASKS, rs_indexer=None, return_pred = True)
 mdtb_predicted_block2 = zscore(np.array(mdtb_predicted_block2))
 mdtb_tha_af_reliability = np.zeros((21,25))
 for s in np.arange(21):
 	for t in np.arange(25):
 		mdtb_tha_af_reliability[s,t] = np.corrcoef(mdtb_predicted_block1[s,t,:],mdtb_predicted_block2[s,t,:])[0,1]
 
-tomoya_activity_flow_block1, tomoya_rsa_similarity_block1, tomoya_pred_accu_block1, tomoya_predicted_block1 = activity_flow_subject(tomoya_fc_block1, tomoya_beta_matrix_block1, tomoya_cortical_betas_block2, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
+tomoya_activity_flow_block1, tomoya_rsa_similarity_block1, tomoya_pred_accu_block1, tomoya_predicted_block1 = activity_flow_subject(tomoya_fc_block1, tomoya_beta_matrix_block1, tomoya_cortical_betas_block1, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
 tomoya_predicted_block1 = zscore(np.array(tomoya_predicted_block1))
-tomoya_activity_flow_block2, tomoya_rsa_similarity_block2, tomoya_pred_accu_block2, tomoya_predicted_block2 = activity_flow_subject(tomoya_fc_block2, tomoya_beta_matrix_block2, tomoya_cortical_betas_block1, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
+tomoya_activity_flow_block2, tomoya_rsa_similarity_block2, tomoya_pred_accu_block2, tomoya_predicted_block2 = activity_flow_subject(tomoya_fc_block2, tomoya_beta_matrix_block2, tomoya_cortical_betas_block2, TOMOYA_TASKS, rs_indexer=None, return_pred = True)
 tomoya_predicted_block2 = zscore(np.array(tomoya_predicted_block2))
 tomoya_tha_af_reliability = np.zeros((6,102))
 for s in np.arange(6):
@@ -808,7 +940,7 @@ af_results = read_object('data/af_results')
 from scipy.stats import ttest_rel
 ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), af_results['mdtb_activity_flow_null'].mean(axis=(0,2)))
 ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), mdtb_activity_flow_uniform.mean(axis=1))
-ttest_rel(af_results['mdtb_activity_flow_normalized'].mean(axis=1), mdtb_activity_flow_averaged_null.mean(axis=1))
+ttest_rel(np.nanmean(af_results['mdtb_activity_flow_normalized'], axis=1), np.nanmean(af_results['mdtb_activity_flow_averaged_null'], axis=1))
 ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), af_results['tomoya_activity_flow_null'].mean(axis=(0,2)))
 ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), tomoya_activity_flow_uniform.mean(axis=1))
 ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), tomoya_activity_flow_averaged_null.mean(axis=1))
@@ -817,15 +949,15 @@ ttest_rel(af_results['tomoya_activity_flow_normalized'].mean(axis=1), tomoya_act
 #load whole brain ROI mask, here we combine Schaeffer with several subcortical masks
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-Schaefer400_beta_matrix_block1 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-Schaefer400_beta_matrix_block2 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
-np.save("data/Schaefer400_beta_matrix_block1", Schaefer400_beta_matrix_block1)
-np.save("data/Schaefer400_beta_matrix_block2", Schaefer400_beta_matrix_block2)
+# Schaefer400_beta_matrix_block1 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+# Schaefer400_beta_matrix_block2 = glm.load_brik(mdtb_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", MDTB_TASKS, zscore=True, kind="beta")
+# np.save("data/Schaefer400_beta_matrix_block1", Schaefer400_beta_matrix_block1)
+# np.save("data/Schaefer400_beta_matrix_block2", Schaefer400_beta_matrix_block2)
 
-Schaeffer400_cortical_ts_block1 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
-Schaeffer400_cortical_ts_block2 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
-np.save('data/Schaeffer400_cortical_ts_block1', Schaeffer400_cortical_ts_block1)
-np.save('data/Schaeffer400_cortical_ts_block2', Schaeffer400_cortical_ts_block2)
+#Schaeffer400_cortical_ts_block1 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
+#Schaeffer400_cortical_ts_block2 = load_cortical_ts(mdtb_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
+#np.save('data/Schaeffer400_cortical_ts_block1', Schaeffer400_cortical_ts_block1)
+#np.save('data/Schaeffer400_cortical_ts_block2', Schaeffer400_cortical_ts_block2)
 
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
@@ -836,8 +968,8 @@ Schaeffer400_cortical_ts_block2 = np.load('data/Schaeffer400_cortical_ts_block2.
 subs = mdtb_subjects
 tasks = MDTB_TASKS
 CerebrA = nib.load("/data/backed_up/shared/ROIs/mni_atlas/CerebrA_2mm.nii.gz")
-mdtb_whole_brain_af_corr_block1, mdtb_whole_brain_af_rsa_corr_block1, mdtb_whole_brain_af_predicition_accu_block1, mdtb_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
-mdtb_whole_brain_af_corr_block2, mdtb_whole_brain_af_rsa_corr_block2, mdtb_whole_brain_af_predicition_accu_block2, mdtb_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+mdtb_whole_brain_af_corr_block1, mdtb_whole_brain_af_rsa_corr_block1, mdtb_whole_brain_af_predicition_accu_block1, mdtb_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+mdtb_whole_brain_af_corr_block2, mdtb_whole_brain_af_rsa_corr_block2, mdtb_whole_brain_af_predicition_accu_block2, mdtb_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
 np.save('data/mdtb_whole_brain_af_corr_block1.mdtb', mdtb_whole_brain_af_corr_block1)
 np.save('data/mdtb_whole_brain_af_pred_block1.mdtb', mdtb_whole_brain_af_pred_block1)
 np.save('data/mdtb_whole_brain_af_corr_block2.mdtb', mdtb_whole_brain_af_corr_block2)
@@ -856,8 +988,8 @@ np.save("data/mdtb_whole_brain_af_corr_normed", mdtb_whole_brain_af_corr_normed)
 np.save("data/mdtb_whole_brain_af_corr", mdtb_whole_brain_af_corr)
 
 Schaefer100 = nib.load('data/Schaefer100+BG_2mm.nii.gz')
-mdtb_whole_brain_af_corr_100_block1, mdtb_whole_brain_af_rsa_corr_100_block1, mdtb_whole_brain_af_predicition_accu_100_block1, mdtb_whole_brain_af_pred_100_block1 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
-mdtb_whole_brain_af_corr_100_block2, mdtb_whole_brain_af_rsa_corr_100_block2, mdtb_whole_brain_af_predicition_accu_100_block2, mdtb_whole_brain_af_pred_100_block2 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+mdtb_whole_brain_af_corr_100_block1, mdtb_whole_brain_af_rsa_corr_100_block1, mdtb_whole_brain_af_predicition_accu_100_block1, mdtb_whole_brain_af_pred_100_block1 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block1, Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+mdtb_whole_brain_af_corr_100_block2, mdtb_whole_brain_af_rsa_corr_100_block2, mdtb_whole_brain_af_predicition_accu_100_block2, mdtb_whole_brain_af_pred_100_block2 = run_whole_brain_af(Schaefer100, subs, tasks, Schaeffer400_cortical_ts_block2, Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
 np.save('data/mdtb_whole_brain_af_corr_100_block1.mdtb', mdtb_whole_brain_af_corr_100_block1)
 np.save('data/mdtb_whole_brain_af_pred_100_block1.mdtb', mdtb_whole_brain_af_pred_100_block1)
 np.save('data/mdtb_whole_brain_af_corr_100_block2.mdtb', mdtb_whole_brain_af_corr_100_block2)
@@ -881,19 +1013,24 @@ subs = tomoya_subjects
 tasks = TOMOYA_TASKS
 Schaefer400 = nib.load(masks.SCHAEFER_400_7N_PATH)
 Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
-tomoya_Schaefer400_beta_matrix_block1 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
-tomoya_Schaefer400_beta_matrix_block2 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
-np.save("data/tomoya_Schaefer400_beta_matrix_block1", tomoya_Schaefer400_beta_matrix_block1)
-np.save("data/tomoya_Schaefer400_beta_matrix_block2", tomoya_Schaefer400_beta_matrix_block2)
+# tomoya_Schaefer400_beta_matrix_block1 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block1+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+# tomoya_Schaefer400_beta_matrix_block2 = glm.load_brik(tomoya_subjects, Schaefer400_masker, "FIRmodel_MNI_stats_block2+tlrc.BRIK", TOMOYA_TASKS, zscore=True, kind="beta")
+# np.save("data/tomoya_Schaefer400_beta_matrix_block1", tomoya_Schaefer400_beta_matrix_block1)
+# np.save("data/tomoya_Schaefer400_beta_matrix_block2", tomoya_Schaefer400_beta_matrix_block2)
 
-tomoya_Schaeffer400_cortical_ts_block1 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
-tomoya_Schaeffer400_cortical_ts_block2 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
-np.save('data/tomoya_Schaeffer400_cortical_ts_block1', tomoya_Schaeffer400_cortical_ts_block1)
-np.save('data/tomoya_Schaeffer400_cortical_ts_block2', tomoya_Schaeffer400_cortical_ts_block2)
+# tomoya_Schaeffer400_cortical_ts_block1 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block1.nii.gz")
+# tomoya_Schaeffer400_cortical_ts_block2 = load_cortical_ts(tomoya_subjects, Schaefer400, "FIRmodel_errts_block2.nii.gz")
+# np.save('data/tomoya_Schaeffer400_cortical_ts_block1', tomoya_Schaeffer400_cortical_ts_block1)
+# np.save('data/tomoya_Schaeffer400_cortical_ts_block2', tomoya_Schaeffer400_cortical_ts_block2)
+
+tomoya_Schaefer400_beta_matrix_block1 = np.load("data/tomoya_Schaefer400_beta_matrix_block1.npy", allow_pickle=True)
+tomoya_Schaefer400_beta_matrix_block2 = np.load("data/tomoya_Schaefer400_beta_matrix_block2.npy", allow_pickle=True)
+tomoya_Schaeffer400_cortical_ts_block1 = np.load('data/tomoya_Schaeffer400_cortical_ts_block1.npy', allow_pickle=True)
+tomoya_Schaeffer400_cortical_ts_block2 = np.load('data/tomoya_Schaeffer400_cortical_ts_block2.npy', allow_pickle=True)
 
 CerebrA = nib.load("/data/backed_up/shared/ROIs/mni_atlas/CerebrA_2mm.nii.gz")
-tomoya_whole_brain_af_corr_block1, tomoya_whole_brain_af_rsa_corr_block1, tomoya_whole_brain_af_predicition_accu_block1, tomoya_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
-tomoya_whole_brain_af_corr_block2, tomoya_whole_brain_af_rsa_corr_block2, tomoya_whole_brain_af_predicition_accu_block2, tomoya_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+tomoya_whole_brain_af_corr_block1, tomoya_whole_brain_af_rsa_corr_block1, tomoya_whole_brain_af_predicition_accu_block1, tomoya_whole_brain_af_pred_block1 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+tomoya_whole_brain_af_corr_block2, tomoya_whole_brain_af_rsa_corr_block2, tomoya_whole_brain_af_predicition_accu_block2, tomoya_whole_brain_af_pred_block2 = run_whole_brain_af(CerebrA, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
 np.save('data/tomoya_whole_brain_af_corr_block1.tomoya', tomoya_whole_brain_af_corr_block1)
 np.save('data/tomoya_whole_brain_af_pred_block1.tomoya', tomoya_whole_brain_af_pred_block1)
 np.save('data/tomoya_whole_brain_af_corr_block2.tomoya', tomoya_whole_brain_af_corr_block2)
@@ -912,8 +1049,8 @@ np.save("data/tomoya_whole_brain_af_corr_normed", tomoya_whole_brain_af_corr_nor
 np.save("data/tomoya_whole_brain_af_corr", tomoya_whole_brain_af_corr)
 
 Schaefer100 = nib.load('data/Schaefer100+BG_2mm.nii.gz')
-tomoya_whole_brain_af_corr_100_block1, tomoya_whole_brain_af_rsa_corr_100_block1, tomoya_whole_brain_af_predicition_accu_100_block1, tomoya_whole_brain_af_pred_100_block1  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
-tomoya_whole_brain_af_corr_100_block2, tomoya_whole_brain_af_rsa_corr_100_block2, tomoya_whole_brain_af_predicition_accu_100_block2, tomoya_whole_brain_af_pred_100_block2  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
+tomoya_whole_brain_af_corr_100_block1, tomoya_whole_brain_af_rsa_corr_100_block1, tomoya_whole_brain_af_predicition_accu_100_block1, tomoya_whole_brain_af_pred_100_block1  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block1, tomoya_Schaefer400_beta_matrix_block2, "FIRmodel_MNI_stats_block1+tlrc.BRIK", "FIRmodel_errts_block1.nii.gz", "FIRmodel_MNI_stats_block1+tlrc.BRIK")
+tomoya_whole_brain_af_corr_100_block2, tomoya_whole_brain_af_rsa_corr_100_block2, tomoya_whole_brain_af_predicition_accu_100_block2, tomoya_whole_brain_af_pred_100_block2  = run_whole_brain_af(Schaefer100, subs, tasks, tomoya_Schaeffer400_cortical_ts_block2, tomoya_Schaefer400_beta_matrix_block1, "FIRmodel_MNI_stats_block2+tlrc.BRIK", "FIRmodel_errts_block2.nii.gz", "FIRmodel_MNI_stats_block2+tlrc.BRIK")
 np.save('data/tomoya_whole_brain_af_corr_100_block1.tomoya', tomoya_whole_brain_af_corr_100_block1)
 np.save('data/tomoya_whole_brain_af_pred_100_block1.tomoya', tomoya_whole_brain_af_pred_100_block1)
 np.save('data/tomoya_whole_brain_af_corr_100_block2.tomoya', tomoya_whole_brain_af_corr_100_block2)
@@ -1177,13 +1314,18 @@ new_cii.to_filename('data/af.tomoya.100.dscalar.nii')
 af_results = read_object('data/af_results')
 mdtb_activity_flow = af_results['mdtb_activity_flow_normalized']
 tomoya_activity_flow = af_results['tomoya_activity_flow_normalized']
-mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
-tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
+#mdtb_fc = fc.load(MDTB_ANALYSIS_DIR + "fc_mni_residuals.p")
+#tomoya_fc = fc.load(tomoya_dir_tree.analysis_dir + "fc_mni_residuals.p")
+mdtb_fc = np.load(MDTB_ANALYSIS_DIR + "mdtb_fcmats.npy")
+tomoya_fc = np.load(tomoya_dir_tree.analysis_dir + "tomoya_fcmats.npy")
 mdtb_cortical_betas = np.load('data/mdtb_cortical_betas.npy')
 tomoya_cortical_betas = np.load('data/tomoya_cortical_betas.npy')
 
-mdtb_taskPC = mdtb_pca_WxV.T #np.mean(mdtb_hc_pc, axis=(1,3))
-tomoya_taskPC = tomoya_pca_WxV.T #np.mean(tomoya_hc_pc, axis=(1,3))   
+mdtb_taskPC = mdtb_pca_W.T #np.mean(mdtb_hc_pc, axis=(1,3))
+tomoya_taskPC = tomoya_pca_W.T #np.mean(tomoya_hc_pc, axis=(1,3))   
+
+#
+np.corrcoef(mdtb_taskPC.mean(axis=0), tomoya_taskPC.mean(axis=0))
 
 mdtb_activity_flow_thresh = np.empty((80, mdtb_activity_flow.shape[0], mdtb_activity_flow.shape[1]))
 tomoya_activity_flow_thresh = np.empty((80, tomoya_activity_flow.shape[0], tomoya_activity_flow.shape[1]))
@@ -1198,8 +1340,8 @@ for thres in np.arange(1,81):
 	tomoya_activity_flow_thresh[thres-1, :,:], tomoya_activity_flow_rsa_thresh[thres-1, :], tomoya_activity_flow_pred_accu_thresh[thres-1, :]  = activity_flow_subject(tomoya_fc, tmp_mat, tomoya_cortical_betas, TOMOYA_TASKS, rs_indexer=None)
 
 af_simulation_results = {}
-af_simulation_results['mdtb_activity_flow_thresh'] = mdtb_activity_flow_thresh
-af_simulation_results['tomoya_activity_flow_thresh'] = tomoya_activity_flow_thresh
+af_simulation_results['mdtb_activity_flow_thresh'] = mdtb_activity_flow_thresh / mdtb_activity_flow_noise_ceiling
+af_simulation_results['tomoya_activity_flow_thresh'] = tomoya_activity_flow_thresh / tomoya_activity_flow_noise_ceiling
 #save_object(af_simulation_results, 'data/af_simulation_results')
 
 ### plot lesion simulation of %reduction in pattern similarity
@@ -1212,7 +1354,7 @@ for t, task in enumerate(MDTB_TASKS):
 			lesion_df.loc[ii,'Dataset'] = 'MDTB'
 			lesion_df.loc[ii,'Task'] = task
 			lesion_df.loc[ii,'Subject'] = str(sub)
-			lesion_df.loc[ii, 'Reduction (%) in Evokd Pattern Correlation'] = (mdtb_activity_flow_thresh[r, t,sub] -0.3698) / 0.3698 *100
+			lesion_df.loc[ii, 'Reduction (%) in Evokd Pattern Correlation'] = (mdtb_activity_flow_thresh[r, t,sub] -np.nanmean(mdtb_activity_flow_thresh)) / np.nanmean(mdtb_activity_flow_thresh) *100
 			lesion_df.loc[ii, 'Lesioned voxels\' hub percentile'] = 80 - r
 			ii = ii+1
 
@@ -1223,38 +1365,61 @@ for t, task in enumerate(TOMOYA_TASKS):
 			lesion_df.loc[ii,'Dataset'] = 'N&N'
 			lesion_df.loc[ii,'Task'] = task
 			lesion_df.loc[ii,'Subject'] = str(sub)
-			lesion_df.loc[ii, 'Reduction (%) in Evokd Pattern Correlation'] = (tomoya_activity_flow_thresh[r, t,sub] -0.2163) / 0.2163 *100
+			lesion_df.loc[ii, 'Reduction (%) in Evokd Pattern Correlation'] = (tomoya_activity_flow_thresh[r, t,sub] -np.nanmean(tomoya_activity_flow_thresh)) / np.nanmean(tomoya_activity_flow_thresh) *100
 			lesion_df.loc[ii, 'Lesioned voxels\' hub percentile'] = 80 - r
 			ii = ii+1
 lesion_df.to_csv('data/lesion_af.csv')
-sns.lineplot(x='Lesioned voxels\' hub percentile', y='Reduction (%) in Evokd Pattern Correlation', hue='Dataset', data = lesion_df)
+sns.lineplot(x='Lesioned voxels\' hub percentile', y='Reduction (%) in Evokd Pattern Correlation', hue='Dataset', data = lesion_df, errorbar='se')
 fig.tight_layout() 
 plt.savefig("images/af_flow_lesion.png", bbox_inches='tight')
 
-## now map % reduction in evoked pattern similarity and RDM in volumne space
+## now map % reduction in evoked pattern similarity in volumne space
 mPC = mdtb_taskPC.mean(axis=0) #(shape sub by th vox)
-dpc = np.zeros(2445)
-F = (mdtb_activity_flow_thresh.mean(axis=(1,2))-.3698) / .3698 * 100
+mdtb_dpc = np.zeros((2445,21))
+F = (np.nanmean(mdtb_activity_flow_thresh, axis=1) -np.nanmean(mdtb_activity_flow_thresh)) / np.nanmean(mdtb_activity_flow_thresh) * 100
 for thres in np.arange(1,81):
-	minv = np.percentile(mPC,thres)
-	maxv = np.percentile(mPC,thres+20)
-	dpc[((mPC <= maxv) & (mPC >= minv))] = F[thres*-1]
-mdtb_dpc = dpc
-mdtb_dpc_img = mdtb_masker.inverse_transform(dpc)
+	for s in np.arange(21):
+		minv = np.percentile(mPC,thres)
+		maxv = np.percentile(mPC,thres+20)
+		mdtb_dpc[((mPC <= maxv) & (mPC >= minv)),s] = F[thres*-1,s]
+mdtb_dpc_img = mdtb_masker.inverse_transform(mdtb_dpc.mean(axis=1))
 mdtb_dpc_img.to_filename("images/mdtb_dpc_img.nii.gz")
 plot_tha(mdtb_dpc_img, -20, 0, "Blues_r", "images/dpc.png")
 
 tPC = tomoya_taskPC.mean(axis=0) #(shape sub by th vox)
-dpc = np.zeros(2445)
-F = (tomoya_activity_flow_thresh.mean(axis=(1,2))-.2163) / .2163* 100
+tomoya_dpc = np.zeros((2445,6))
+F = (np.nanmean(tomoya_activity_flow_thresh, axis=1) -np.nanmean(tomoya_activity_flow_thresh)) / np.nanmean(tomoya_activity_flow_thresh) * 100
 for thres in np.arange(1,81):
-	minv = np.percentile(tPC,thres)
-	maxv = np.percentile(tPC,thres+20)
-	dpc[((tPC <= maxv) & (tPC >= minv))] = F[thres*-1]
-tomoya_dp = dpc
-tomoya_dpc_img = mdtb_masker.inverse_transform(dpc)
+	for s in np.arange(6):
+		minv = np.percentile(tPC,thres)
+		maxv = np.percentile(tPC,thres+20)
+		tomoya_dpc[((mPC <= maxv) & (mPC >= minv)),s] = F[thres*-1,s]
+tomoya_dpc_img = tomoya_masker.inverse_transform(tomoya_dpc.mean(axis=1))
 tomoya_dpc_img.to_filename("images/tomoya_dpc_img.nii.gz")
-plot_tha(tomoya_dpc_img, -10, 0, "Blues_r", "images/tomoya_dpc.png")
+plot_tha(tomoya_dpc_img, -20, 0, "Blues_r", "images/tomoya_dpc.png")
+
+### now plot the simulated lesion effect by
+### plot task hub by functional parcel
+fparcelmask = nib.load("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+fparcel_masker = input_data.NiftiLabelsMasker("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+Networks = ['V', 'SM', 'DA', 'CO', 'Lm', 'FP', 'DF'] #LM is too small, only a handful of voxels so excluded eventually
+fparcel_masker.fit("/home/kahwang/bsh/ROIs/Yeo_thalamus_parcel_7network.nii.gz")
+
+mdtbtaskfparcel_df = pd.DataFrame() 
+A=fparcel_masker.fit_transform(fparcel_masker.inverse_transform(mdtb_dpc.T))
+i=0
+for s in np.arange(21):
+	for r in np.arange(7):
+		mdtbtaskfparcel_df.loc[i, 'Network'] = Networks[r]
+		mdtbtaskfparcel_df.loc[i, 'compW'] = A[s,r]
+		mdtbtaskfparcel_df.loc[i, 'Subj'] = s
+		i=i+1
+
+sns.barplot(data = mdtbtaskfparcel_df, x="Network", y='compW', order = ['V', 'SM', 'DA', 'CO', 'FP', 'DF'],color='b', errorbar='se')
+fig = plt.gcf()
+fig.set_size_inches([3.5,2])
+fig.tight_layout()
+
 
 ### linear model test relationship between reduction and percentile
 df = lesion_df[lesion_df['Dataset']=='MDTB'].groupby(["Subject", "Lesioned voxels' hub percentile"]).mean().reset_index()
@@ -1320,26 +1485,12 @@ dpc_lesion_df = dpc_lesion_df.append(tdf)
 dpc_lesion_df.to_csv('data/dpc_lesion_df.csv')
 
 dpc_lesion_df = pd.read_csv('data/dpc_lesion_df.csv')
-sns.catplot(data=dpc_lesion_df, y="% reduction in evoked pattern correlation", x='Lesion Sites', hue="Dataset", kind = 'point', legend=False)
+sns.catplot(data=dpc_lesion_df, y="% reduction in evoked pattern correlation", x='Lesion Sites', hue="Dataset", kind = 'point', legend=False, errorbar='se')
 fig = plt.gcf()
 fig.set_size_inches([4,4])
 fig.tight_layout() 
 plt.savefig("images/dpc_lesion_df.png", bbox_inches='tight')
 
-###
-### compare RDM stuctures
-###
-mdtb_mmdrsa =  mdtb_masker.fit_transform(mdtb_drsa_img)[mmmask!=0]
-tomoya_mmdrsa =  mdtb_masker.fit_transform(tomoya_drsa_img)[mmmask!=0]
-mdtb_smdrsa =  mdtb_masker.fit_transform(mdtb_drsa_img)[smmask!=0]
-tomoya_smdrsa =  mdtb_masker.fit_transform(tomoya_drsa_img)[smmask!=0]
-
-rsa_lesion_df = pd.read_csv('data/rsa_lesion_df.csv')
-sns.catplot(data=rsa_lesion_df, y="% reduction in RDM similarity", x='Lesion Sites', hue="Dataset", kind = 'point', legend=False)
-fig = plt.gcf()
-fig.set_size_inches([4,4])
-fig.tight_layout() 
-plt.savefig("images/rsa_lesion_df.png", bbox_inches='tight')
 
 ## statistical tests of MM v SM
 #Komogorov-Smirnov test
@@ -1351,14 +1502,6 @@ kstest(a,b)
 
 a = dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='N&N') & (dpc_lesion_df['Lesion Sites']=='MM')]['% reduction in evoked pattern correlation'].values
 b =dpc_lesion_df.loc[(dpc_lesion_df['Dataset']=='N&N') & (dpc_lesion_df['Lesion Sites']=='SM')]['% reduction in evoked pattern correlation'].values
-kstest(a,b)
-
-a = rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='MDTB') & (rsa_lesion_df['Lesion Sites']=='MM')]['% reduction in RDM similarity'].values
-b =rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='MDTB') & (rsa_lesion_df['Lesion Sites']=='SM')]['% reduction in RDM similarity'].values
-kstest(a,b)
-
-a = rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='MM')]['% reduction in RDM similarity'].values
-b =rsa_lesion_df.loc[(rsa_lesion_df['Dataset']=='N&N') & (rsa_lesion_df['Lesion Sites']=='SM')]['% reduction in RDM similarity'].values
 kstest(a,b)
 
 
