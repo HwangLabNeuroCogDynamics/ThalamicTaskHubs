@@ -66,9 +66,15 @@ Schaefer400_masker = input_data.NiftiLabelsMasker(Schaefer400)
 mni_thalamus_mask = nib.load("/Shared/lss_kahwang_hpc/ROIs//mni_atlas/MNI_thalamus_2mm.nii.gz")
 mni_thalamus_masker = input_data.NiftiMasker(mni_thalamus_mask) 
 
+<<<<<<< HEAD
 # mdtb_fcmats = np.zeros((2445, 400, len(mdtb_subs)))
 # for i, sub in enumerate(mdtb_subs):
 # 	func_file = nib.load(mdtb_dir+"3dDeconvolve/" + sub + "/FIRmodel_errts_block1.nii.gz")
+=======
+mdtb_fcmats = np.zeros((2445, 400, len(mdtb_subs)))
+for i, sub in enumerate(mdtb_subs):
+	func_file = nib.load(mdtb_dir+"3dDeconvolve/" + sub + "/FIRmodel_errts_block1.nii.gz")
+>>>>>>> d876ea93f1174ffdfe35c60f1f8b0ba8b637b037
 	
 # 	cortical_ts = Schaefer400_masker.fit_transform(func_file)
 # 	roi_ts = mni_thalamus_masker.fit_transform(func_file) #roi_ts = data[np.nonzero(mni_thalamus_mask.get_fdata())]
@@ -115,7 +121,45 @@ for i, sub in enumerate(tomoya_subs):
 	fcmat[np.isnan(fcmat)] = 0
 	tomoya_fcmats[:,:,i] = fcmat
 
+<<<<<<< HEAD
 np.save(tomoya_dir + "analysis/tomoya_rfcmats_block1", tomoya_fcmats)
+=======
+np.save(mdtb_dir + "analysis/mdtb_fcmats_block1", mdtb_fcmats)
+
+mdtb_fcmats = np.zeros((2445, 400, len(mdtb_subs)))
+for i, sub in enumerate(mdtb_subs):
+	func_file = nib.load(mdtb_dir+"3dDeconvolve/" + sub + "/FIRmodel_errts_block2.nii.gz")
+	
+	cortical_ts = Schaefer400_masker.fit_transform(func_file)
+	roi_ts = mni_thalamus_masker.fit_transform(func_file) #roi_ts = data[np.nonzero(mni_thalamus_mask.get_fdata())]
+
+	roi_ts = np.delete(roi_ts, np.where(roi_ts.mean(axis=1)==0)[0], axis=0)
+	cortical_ts = np.delete(cortical_ts, np.where(cortical_ts.mean(axis=1)==0)[0], axis=0)
+	
+	#fcmat = generate_correlation_mat(roi_ts.T, cortical_ts.T)
+	fcmat = pca_reg_fc(roi_ts, cortical_ts)
+	fcmat[np.isnan(fcmat)] = 0
+	mdtb_fcmats[:,:,i] = fcmat
+
+np.save(mdtb_dir + "analysis/mdtb_fcmats_block2", mdtb_fcmats)
+
+tomoya_fcmats = np.zeros((2445, 400, len(tomoya_subs)))
+for i, sub in enumerate(tomoya_subs):
+	func_file = nib.load(tomoya_dir+"3dDeconvolve/" + sub + "/FIRmodel_errts_block1.nii.gz")
+	
+	cortical_ts = Schaefer400_masker.fit_transform(func_file)
+	roi_ts = mni_thalamus_masker.fit_transform(func_file)#data[np.nonzero(mni_thalamus_mask.get_fdata())]
+	
+	roi_ts = np.delete(roi_ts, np.where(roi_ts.mean(axis=1)==0)[0], axis=0)
+	cortical_ts = np.delete(cortical_ts, np.where(cortical_ts.mean(axis=1)==0)[0], axis=0)
+	
+	#fcmat = generate_correlation_mat(roi_ts, cortical_ts.T)
+	fcmat = pca_reg_fc(roi_ts, cortical_ts)
+	fcmat[np.isnan(fcmat)] = 0
+	tomoya_fcmats[:,:,i] = fcmat
+
+np.save(tomoya_dir + "analysis/tomoya_fcmats_block1", tomoya_fcmats)
+>>>>>>> d876ea93f1174ffdfe35c60f1f8b0ba8b637b037
 
 tomoya_fcmats = np.zeros((2445, 400, len(tomoya_subs)))
 for i, sub in enumerate(tomoya_subs):
@@ -132,7 +176,11 @@ for i, sub in enumerate(tomoya_subs):
 	fcmat[np.isnan(fcmat)] = 0
 	tomoya_fcmats[:,:,i] = fcmat
 
+<<<<<<< HEAD
 np.save(tomoya_dir + "analysis/tomoya_rfcmats_block2", tomoya_fcmats)
+=======
+np.save(tomoya_dir + "analysis/tomoya_fcmats_block2", tomoya_fcmats)
+>>>>>>> d876ea93f1174ffdfe35c60f1f8b0ba8b637b037
 
 
 
